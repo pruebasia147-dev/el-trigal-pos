@@ -12,11 +12,12 @@ interface SalesAnalyticsProps {
   sales: Sale[];
   products: Product[];
   settings: AppSettings;
+  onRefresh: () => Promise<void>;
 }
 
 type TimeFrame = 'day' | 'week' | 'month' | 'year';
 
-const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settings }) => {
+const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settings, onRefresh }) => {
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('day');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
@@ -213,14 +214,14 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
       alert('Venta actualizada correctamente.');
       setIsEditingSale(false);
       setSelectedSale(null);
-      window.location.reload(); 
+      await onRefresh();
   };
 
   // --- DELETE LOGIC ---
   const handleDeleteSale = async (sale: Sale) => {
       if (confirm(`⚠️ ¿Estás seguro de eliminar la factura #${sale.id.slice(0,6)}?\n\n- Se devolverá el stock.\n- Se ajustará la deuda del cliente si fue a crédito.`)) {
           await db.deleteSale(sale.id);
-          window.location.reload();
+          await onRefresh();
       }
   };
 

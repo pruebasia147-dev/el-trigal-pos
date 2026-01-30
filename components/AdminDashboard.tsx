@@ -7,7 +7,7 @@ import ClientCRM from './ClientCRM';
 import { 
   LayoutDashboard, Package, Users, Settings, LogOut, 
   TrendingUp, DollarSign, Edit, Menu, X, Plus, BarChart3, 
-  Wallet, ArrowUpRight, CalendarClock, Activity, Calculator, Trash2,
+  Wallet, CalendarClock, Activity, Calculator, Trash2,
   AlertCircle, CalendarDays, Coins, Warehouse, PieChart, Save, Upload, Store,
   MessageSquare, Send, Bot, ScrollText, UserCog, AlertTriangle, Loader2, Truck
 } from 'lucide-react';
@@ -91,17 +91,13 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
           setIsResetting(true);
           setResetStatus('Borrando datos...');
           try {
-              // 1. Ejecutar limpieza en BD
               await db.clearAllSalesData((status) => setResetStatus(status));
-              
-              // 2. Limpiar estado local INMEDIATAMENTE para feedback visual "en cero"
               setSales([]);
               setClients(prev => prev.map(c => ({...c, debt: 0})));
-              
               alert('✅ Sistema reiniciado a CERO exitosamente.');
-              
-              // 3. Recargar para asegurar consistencia
-              window.location.reload();
+              await loadData();
+              setIsResetting(false);
+              setResetStatus('');
           } catch (e: any) {
               alert(`Error: ${e.message}`);
               setIsResetting(false);
@@ -114,7 +110,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
     await db.updateProduct(product);
     setEditingProduct(null);
     loadData();
-    // No need to call loadLogs() here as db.ts logs automatically, but if we want instant feedback in the Logs tab (if active):
     if(activeTab === 'logs') loadLogs();
   };
 
@@ -151,15 +146,14 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
           if (json) {
               const success = await db.restoreDatabase(json);
               if (success) {
-                  alert('¡Base de datos restaurada con éxito! La página se recargará.');
-                  window.location.reload();
+                  alert('¡Base de datos restaurada con éxito!');
+                  await loadData();
               } else {
                   alert('Error: El archivo no es válido.');
               }
           }
       };
       reader.readAsText(file);
-      // Reset input
       if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -177,7 +171,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
         revenue += sale.totalAmount;
         sale.items.forEach(item => {
           const product = products.find(p => p.id === item.productId);
-          // Estimate cost based on current product cost (or 70% of price if product deleted)
           const itemCost = product ? product.cost * item.quantity : (item.subtotal * 0.7);
           cost += itemCost;
         });
@@ -208,7 +201,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
     const avgDailyRevenue = monthRevenue / daysPassed;
     const projectedRevenue = monthRevenue + (avgDailyRevenue * (daysInMonth - daysPassed));
 
-    // 4. Assets & Liabilities (Professional Additions)
+    // 4. Assets & Liabilities
     const totalDebt = clients.reduce((sum, c) => sum + c.debt, 0);
     const inventoryValue = products.reduce((sum, p) => sum + (p.cost * p.stock), 0);
     const lowStockCount = products.filter(p => p.stock <= 20).length;
@@ -224,7 +217,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
         totalDebt,
         inventoryValue,
         lowStockCount,
-        todaySales // Pass this for the modal
+        todaySales
     };
   };
 
@@ -241,13 +234,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
           unitCost: number 
       }> = {};
 
-      // Filter only POS (Cash) sales for "Realized Profit"
       const realizedSales = financials.todaySales.filter(s => s.type === 'pos');
 
       realizedSales.forEach(sale => {
           sale.items.forEach(item => {
               const prod = products.find(p => p.id === item.productId);
-              // Use current cost if available, else estimate
               const unitCost = prod ? prod.cost : (item.unitPrice * 0.6); 
 
               if (!breakdown[item.productId]) {
@@ -267,7 +258,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
           });
       });
 
-      // Convert to array and calculate unit averages
       return Object.values(breakdown).map(item => ({
           ...item,
           avgUnitPrice: item.revenue / item.qty,
@@ -280,9 +270,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   const handleChatSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if(!chatMessage.trim()) return;
-    
-    // Fake interaction for demo
-    alert(`Mensaje enviado: "${chatMessage}"\n\nNota: Para que el asistente pueda modificar la base de datos realmente, se requiere integración con un servicio de IA en el backend.`);
+    alert(`Mensaje enviado: "${chatMessage}"`);
     setChatMessage('');
   };
 
@@ -319,7 +307,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
             { id: 'simulation', label: 'Simulador (Nuevo)', icon: Calculator },
             { id: 'clients', label: 'Clientes CRM', icon: Users },
             { id: 'inventory', label: 'Inventario', icon: Package },
-            { id: 'logs', label: 'Actividad', icon: ScrollText }, // NEW TAB
+            { id: 'logs', label: 'Actividad', icon: ScrollText },
             { id: 'settings', label: 'Ajustes', icon: Settings },
           ].map((item) => (
              <button 
@@ -360,10 +348,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                 </div>
             </div>
             
-            {/* --- Section 1: Financial Pulse --- */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* --- Section 1: The "Big 3" Cards (Requested Layout) --- */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                  
-                 {/* CASH FLOW CARD (REAL MONEY) */}
+                 {/* CARD 1: CASH FLOW (Real Money) - BLACK */}
                  <div className="bg-gray-900 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group">
                     <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform"><DollarSign size={80}/></div>
                     <div>
@@ -376,7 +364,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                     </div>
                  </div>
 
-                 {/* CREDIT SALES CARD (ACCOUNTS RECEIVABLE GENERATED TODAY) */}
+                 {/* CARD 2: CREDIT DISPATCHES (Pending Money) - BLUE */}
                  <div className="bg-blue-600 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group">
                     <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform"><Truck size={80}/></div>
                     <div>
@@ -385,117 +373,118 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                             <span className="text-xs font-bold uppercase tracking-wider">Despachos a Crédito (Hoy)</span>
                         </div>
                         <h3 className="text-4xl font-bold tracking-tight">${financials.todayCreditRevenue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        <p className="text-sm text-blue-100 mt-1">Pendiente por Cobrar</p>
+                        <p className="text-sm text-blue-100 mt-1">Mercancía entregada por cobrar</p>
+                    </div>
+                 </div>
+
+                 {/* CARD 3: LIQUID PROFIT (Real Profit) - GREEN */}
+                 <div 
+                    onClick={() => setShowProfitDetail(true)}
+                    className="bg-emerald-600 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group cursor-pointer hover:shadow-2xl hover:scale-[1.01] transition-all"
+                 >
+                     <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform"><Wallet size={80}/></div>
+                     <div>
+                        <div className="flex items-center gap-2 text-emerald-100 mb-1">
+                            <Wallet size={16} />
+                            <span className="text-xs font-bold uppercase tracking-wider">Ganancia Líquida (Hoy)</span>
+                        </div>
+                        <h3 className="text-4xl font-bold tracking-tight">${financials.todayCashProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                        <div className="flex items-center justify-between mt-1">
+                             <p className="text-sm text-emerald-100 opacity-90">Disponible Real</p>
+                             <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 hover:bg-white/30 transition-colors">
+                                <PieChart size={12} /> Ver Desglose
+                             </span>
+                        </div>
                     </div>
                  </div>
             </div>
 
-            {/* --- Section 2: Profit & Projections --- */}
+            {/* --- Section 2: Secondary Stats (Smaller Cards - Matched to Image) --- */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Realized Profit (Cash Based) */}
-                <div 
-                    onClick={() => setShowProfitDetail(true)}
-                    className="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white p-6 rounded-2xl shadow-sm border border-emerald-600 cursor-pointer hover:shadow-lg transition-all group relative overflow-hidden"
-                >
-                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform"><Wallet size={60}/></div>
-                    <div className="relative z-10">
-                        <div className="flex items-center gap-2 text-emerald-100 mb-2">
-                            <Wallet size={16} />
-                            <span className="text-xs font-bold uppercase tracking-wider">Ganancia Líquida (Hoy)</span>
-                        </div>
-                        <h3 className="text-3xl font-bold tracking-tight">${financials.todayCashProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        
-                        <div className="mt-4 pt-4 border-t border-emerald-400/30 flex justify-between items-center text-xs">
-                             <span className="text-emerald-100">Disponible Real</span>
-                             <span className="bg-white/20 px-2 py-1 rounded text-[10px] font-bold">Ver Detalle</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Unrealized Profit (Credit Based) */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden group">
-                    <div className="flex justify-between items-start">
+                
+                {/* 1. Ganancia por Cobrar (Matched Image) */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-start hover:shadow-md transition-shadow">
+                    <div className="flex flex-col h-full justify-between">
                         <div>
-                            <p className="text-gray-500 text-xs font-bold uppercase mb-2">Ganancia Por Cobrar</p>
-                            <p className="text-3xl font-bold text-blue-600">${financials.todayCreditProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</p>
-                            <p className="text-xs text-gray-400 mt-1">Estimada en despachos de hoy</p>
+                            <p className="text-gray-500 text-xs font-bold uppercase mb-1">Ganancia Por Cobrar</p>
+                            <h3 className="text-4xl font-bold text-blue-600 tracking-tight">${financials.todayCreditProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
                         </div>
-                        <div className="p-3 bg-blue-50 text-blue-500 rounded-xl group-hover:scale-110 transition-transform">
-                            <TrendingUp size={24} />
-                        </div>
+                        <p className="text-xs text-gray-400 mt-2">Estimada en despachos de hoy</p>
+                    </div>
+                    <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+                        <TrendingUp size={24} />
                     </div>
                 </div>
 
-                {/* Total Accounts Receivable */}
+                {/* 2. Total Cuentas por Cobrar (Matched Image) */}
                 <div 
                     onClick={() => setActiveTab('clients')}
-                    className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between group cursor-pointer hover:shadow-md hover:border-red-100 transition-all"
+                    className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-start cursor-pointer hover:shadow-md transition-shadow"
                 >
-                    <div>
-                        <p className="text-gray-500 text-xs font-bold uppercase mb-1 group-hover:text-red-500 transition-colors">Total Cuentas por Cobrar</p>
-                        <h3 className="text-3xl font-bold text-red-600">${financials.totalDebt.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        <p className="text-xs text-gray-400 mt-1">Capital pendiente acumulado</p>
+                    <div className="flex flex-col h-full justify-between">
+                        <div>
+                            <p className="text-gray-500 text-xs font-bold uppercase mb-1">Total Cuentas por Cobrar</p>
+                            <h3 className="text-4xl font-bold text-red-600 tracking-tight">${financials.totalDebt.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-2">Capital pendiente acumulado</p>
                     </div>
-                    <div className="p-3 bg-red-50 text-red-600 rounded-xl group-hover:scale-110 transition-transform">
+                    <div className="p-3 bg-red-50 text-red-600 rounded-xl">
                         <Coins size={24} />
                     </div>
                 </div>
-            </div>
 
-            {/* --- Section 3: Inventory & Chart --- */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* Inventory Value */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                    <div className="flex items-center gap-3 mb-4">
+                {/* 3. Inventario (Matched Image) */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-md transition-shadow">
+                    <div className="flex items-center gap-3 mb-2">
                         <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
                             <Warehouse size={20} />
                         </div>
                         <div>
-                            <h3 className="font-bold text-gray-900">Inventario</h3>
+                            <h3 className="font-bold text-gray-900 leading-tight">Inventario</h3>
                             <p className="text-xs text-gray-500">Valor al costo</p>
                         </div>
                     </div>
-                    <div className="mt-2">
-                        <h3 className="text-3xl font-bold text-blue-900">${financials.inventoryValue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        <div className="flex items-center gap-2 mt-2">
-                            <span className={`text-xs font-bold px-2 py-1 rounded-md ${financials.lowStockCount > 0 ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                                {financials.lowStockCount} alertas de stock
-                            </span>
-                        </div>
+                    <div>
+                        <h3 className="text-4xl font-bold text-blue-900 tracking-tight mb-2">${financials.inventoryValue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                        <span className={`text-xs font-bold px-3 py-1 rounded-md ${financials.lowStockCount > 0 ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                            {financials.lowStockCount} alertas de stock
+                        </span>
                     </div>
                 </div>
+            </div>
 
-                {/* Chart */}
-                <div className="lg:col-span-2 bg-white p-6 rounded-3xl shadow-sm border border-gray-200">
-                    <div className="mb-4 flex justify-between items-center">
-                        <div>
-                            <h3 className="text-lg font-bold text-gray-900">Tendencia de Ingresos</h3>
-                            <p className="text-sm text-gray-500">Comportamiento de ventas últimos 14 días</p>
-                        </div>
-                        <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-lg border border-gray-100">
-                            <span className="w-2 h-2 rounded-full bg-bakery-500"></span>
-                            <span className="text-xs font-bold text-gray-600">Total Operaciones</span>
-                        </div>
+            {/* --- Section 3: Chart --- */}
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200">
+                <div className="mb-4 flex justify-between items-center">
+                    <div>
+                        <h3 className="text-lg font-bold text-gray-900">Tendencia de Ingresos</h3>
+                        <p className="text-sm text-gray-500">Comportamiento de ventas últimos 14 días</p>
                     </div>
-                    <div className="h-40 w-full">
-                        <ModernSplineChart sales={sales} days={14} />
+                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-lg border border-gray-100">
+                        <span className="w-2 h-2 rounded-full bg-bakery-500"></span>
+                        <span className="text-xs font-bold text-gray-600">Total Operaciones</span>
                     </div>
+                </div>
+                <div className="h-64 w-full">
+                    <ModernSplineChart sales={sales} days={14} />
                 </div>
             </div>
           </div>
         )}
 
+        {/* ... (Rest of tabs: Analytics, Simulation, etc. kept exactly as is) ... */}
         {activeTab === 'analytics' && (
-            <SalesAnalytics sales={sales} products={products} settings={settings} />
+            <SalesAnalytics sales={sales} products={products} settings={settings} onRefresh={loadData} />
         )}
 
         {activeTab === 'simulation' && (
             <SimulationPanel products={products} />
         )}
 
+        {/* ... (Inventory, Clients, Logs, Settings kept same) ... */}
         {activeTab === 'inventory' && (
-          <div className="animate-in fade-in duration-500">
+            // ... content ...
+            <div className="animate-in fade-in duration-500">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">Inventario</h2>
@@ -641,7 +630,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
         )}
 
         {activeTab === 'settings' && (
-          <div className="max-w-4xl w-full animate-in fade-in duration-500 space-y-8 pb-10">
+            // ... (Settings code kept same) ...
+            <div className="max-w-4xl w-full animate-in fade-in duration-500 space-y-8 pb-10">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                 <div className="flex justify-between items-center mb-6">
                     <div>
@@ -790,6 +780,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
       </main>
 
       {/* --- FLOATING CHAT --- */}
+      {/* ... (Chat, Modals, etc. kept exactly same) ... */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
          {isChatOpen && (
              <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-80 sm:w-96 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-300 origin-bottom-right h-[400px]">
@@ -830,7 +821,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
          </button>
       </div>
 
-      {/* PROFIT DETAIL MODAL (UPDATED to show Liquid Profit only) */}
+      {/* PROFIT DETAIL MODAL */}
+      {/* ... (Kept exactly same) ... */}
       {showProfitDetail && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
@@ -906,6 +898,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
       )}
 
       {/* Edit Product Modal */}
+      {/* ... (Kept exactly same) ... */}
       {editingProduct && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 animate-in zoom-in duration-200">
@@ -1010,6 +1003,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
       )}
 
       {/* Edit Client Modal */}
+      {/* ... (Kept exactly same) ... */}
       {editingClient && (
          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 animate-in zoom-in duration-200">
@@ -1150,199 +1144,323 @@ const ModernSplineChart: React.FC<{ sales: Sale[]; days: number }> = ({ sales, d
 };
 
 const SimulationPanel: React.FC<{ products: Product[] }> = ({ products }) => {
-  const [simProducts, setSimProducts] = useState<SimProduct[]>([]);
-  const [expenses, setExpenses] = useState<SimExpense[]>([
-    { id: '1', name: 'Alquiler', amount: 0, frequency: 'monthly' },
-    { id: '2', name: 'Nómina', amount: 0, frequency: 'weekly' },
-  ]);
+    // Local State for Simulation
+    const [simProducts, setSimProducts] = useState<SimProduct[]>([]);
+    const [expenses, setExpenses] = useState<SimExpense[]>([]);
+    const [newExpenseName, setNewExpenseName] = useState('');
+    const [newExpenseAmount, setNewExpenseAmount] = useState('');
+    const [newExpenseFreq, setNewExpenseFreq] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+    const [workingDays, setWorkingDays] = useState<number>(26); // Default: Mon-Sat
 
-  useEffect(() => {
-    if (products.length > 0 && simProducts.length === 0) {
-      setSimProducts(products.map((p) => ({ ...p, simDailyQty: 0 })));
-    }
-  }, [products]);
+    // Initialize Sim Products from Real Products
+    useEffect(() => {
+        setSimProducts(products.map(p => ({...p, simDailyQty: 0})));
+    }, [products]);
 
-  const updateSimQty = (id: string, qty: number) => {
-    setSimProducts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, simDailyQty: Math.max(0, qty) } : p))
-    );
-  };
+    // Update simulation value
+    const updateSimProduct = (id: string, field: keyof SimProduct, value: any) => {
+        setSimProducts(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
+    };
 
-  const updateExpense = (id: string, field: keyof SimExpense, value: any) => {
-    setExpenses((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, [field]: value } : e))
-    );
-  };
+    // Add Expense
+    const addExpense = () => {
+        if (!newExpenseName || !newExpenseAmount) return;
+        const expense: SimExpense = {
+            id: crypto.randomUUID(),
+            name: newExpenseName,
+            amount: parseFloat(newExpenseAmount),
+            frequency: newExpenseFreq
+        };
+        setExpenses([...expenses, expense]);
+        setNewExpenseName('');
+        setNewExpenseAmount('');
+    };
 
-  const addExpense = () => {
-    setExpenses([
-      ...expenses,
-      { id: crypto.randomUUID(), name: 'Nuevo Gasto', amount: 0, frequency: 'monthly' },
-    ]);
-  };
+    const removeExpense = (id: string) => {
+        setExpenses(expenses.filter(e => e.id !== id));
+    };
 
-  const removeExpense = (id: string) => {
-    setExpenses(expenses.filter((e) => e.id !== id));
-  };
+    // --- Calculations ---
+    const calculateTotals = () => {
+        // 1. Product Revenue & Cost (Daily Operational)
+        let dailyRevenue = 0;
+        let dailyCOGS = 0; // Cost of Goods Sold
 
-  // Calculations
-  const dailyRevenue = simProducts.reduce((sum, p) => sum + p.priceRetail * p.simDailyQty, 0);
-  const dailyCost = simProducts.reduce((sum, p) => sum + p.cost * p.simDailyQty, 0);
-  const dailyGrossProfit = dailyRevenue - dailyCost;
+        simProducts.forEach(p => {
+            const qty = p.simDailyQty || 0;
+            if (qty > 0) {
+                dailyRevenue += p.priceRetail * qty;
+                dailyCOGS += p.cost * qty;
+            }
+        });
 
-  const dailyFixedExpenses = expenses.reduce((sum, e) => {
-    if (e.frequency === 'daily') return sum + e.amount;
-    if (e.frequency === 'weekly') return sum + e.amount / 7;
-    if (e.frequency === 'monthly') return sum + e.amount / 30;
-    return sum;
-  }, 0);
+        const dailyGrossProfit = dailyRevenue - dailyCOGS;
 
-  const dailyNetProfit = dailyGrossProfit - dailyFixedExpenses;
-  const monthlyNetProfit = dailyNetProfit * 30;
+        // 2. Expenses (TOTAL MONTHLY NORMALIZED)
+        let totalMonthlyExpenses = 0;
+        
+        expenses.forEach(e => {
+            if (e.frequency === 'daily') totalMonthlyExpenses += (e.amount * workingDays);
+            else if (e.frequency === 'weekly') totalMonthlyExpenses += (e.amount * 4.33); 
+            else if (e.frequency === 'monthly') totalMonthlyExpenses += e.amount;
+        });
 
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-500 pb-20">
-      {/* Configuration Column */}
-      <div className="lg:col-span-2 space-y-8">
-        {/* Product Simulator */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
-              <Package size={20} />
-            </div>
-            <div>
-              <h3 className="font-bold text-gray-900">Simulación de Ventas Diarias</h3>
-              <p className="text-xs text-gray-500">Estima cuántas unidades venderás al día.</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-            {simProducts.map((p) => (
-              <div key={p.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
-                <div className="flex-1">
-                  <p className="font-bold text-sm text-gray-800 truncate">{p.name}</p>
-                  <p className="text-xs text-gray-500">
-                    Ganancia/ud: <span className="text-green-600 font-bold">${(p.priceRetail - p.cost).toFixed(2)}</span>
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => updateSimQty(p.id, p.simDailyQty - 5)}
-                    className="w-8 h-8 flex items-center justify-center bg-white border rounded-lg hover:bg-gray-100"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    value={p.simDailyQty}
-                    onChange={(e) => updateSimQty(p.id, parseInt(e.target.value) || 0)}
-                    className="w-12 text-center font-bold bg-transparent focus:outline-none"
-                  />
-                  <button
-                    onClick={() => updateSimQty(p.id, p.simDailyQty + 5)}
-                    className="w-8 h-8 flex items-center justify-center bg-white border rounded-lg hover:bg-gray-100"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        // 3. Monthly Projections
+        const monthlyRevenue = dailyRevenue * workingDays;
+        const monthlyCOGS = dailyCOGS * workingDays;
+        const monthlyGrossProfit = monthlyRevenue - monthlyCOGS;
+        const monthlyNetProfit = monthlyGrossProfit - totalMonthlyExpenses;
 
-        {/* Expenses Simulator */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-          <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 text-red-600 rounded-lg">
-                <Wallet size={20} />
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-900">Gastos Operativos</h3>
-                <p className="text-xs text-gray-500">Costos fijos recurrentes.</p>
-              </div>
-            </div>
-            <button
-              onClick={addExpense}
-              className="text-xs font-bold bg-gray-900 text-white px-3 py-1.5 rounded-lg hover:bg-gray-800"
-            >
-              + Agregar
-            </button>
-          </div>
-          <div className="space-y-3">
-            {expenses.map((expense) => (
-              <div key={expense.id} className="flex items-center gap-3">
-                <input
-                  type="text"
-                  value={expense.name}
-                  onChange={(e) => updateExpense(expense.id, 'name', e.target.value)}
-                  className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-400 focus:outline-none"
-                  placeholder="Nombre del gasto"
-                />
-                <input
-                  type="number"
-                  value={expense.amount}
-                  onChange={(e) => updateExpense(expense.id, 'amount', parseFloat(e.target.value) || 0)}
-                  className="w-24 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-right focus:ring-2 focus:ring-purple-400 focus:outline-none"
-                  placeholder="0.00"
-                />
-                <select
-                  value={expense.frequency}
-                  onChange={(e) => updateExpense(expense.id, 'frequency', e.target.value)}
-                  className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-400 focus:outline-none"
-                >
-                  <option value="daily">Diario</option>
-                  <option value="weekly">Semanal</option>
-                  <option value="monthly">Mensual</option>
-                </select>
-                <button onClick={() => removeExpense(expense.id)} className="text-red-400 hover:text-red-600">
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Results Column */}
-      <div className="space-y-6">
-        <div className="bg-gray-900 text-white p-6 rounded-2xl shadow-xl sticky top-6">
-          <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
-            <Calculator size={20} className="text-purple-400" /> Resultados Proyectados
-          </h3>
-
-          <div className="space-y-4">
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-gray-400">Ventas Diarias Estimadas</span>
-              <span className="font-bold">${dailyRevenue.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-gray-400">Costo Mercancía</span>
-              <span className="font-bold text-red-400">-${dailyCost.toFixed(2)}</span>
-            </div>
-            <div className="border-t border-gray-700 pt-2 flex justify-between items-center text-sm">
-              <span className="text-gray-300">Utilidad Bruta Diaria</span>
-              <span className="font-bold text-green-400">+${dailyGrossProfit.toFixed(2)}</span>
-            </div>
+        return {
+            dailyRevenue,
+            dailyCOGS,
+            dailyGrossProfit, // Without expenses
             
-            <div className="flex justify-between items-center text-sm mt-4">
-              <span className="text-gray-400">Gastos Fijos (Diario)</span>
-              <span className="font-bold text-red-400">-${dailyFixedExpenses.toFixed(2)}</span>
+            // Monthly Totals
+            monthlyRevenue,
+            monthlyCOGS,
+            totalMonthlyExpenses,
+            monthlyNetProfit,
+
+            margin: monthlyRevenue > 0 ? (monthlyNetProfit / monthlyRevenue) * 100 : 0
+        };
+    };
+
+    const totals = calculateTotals();
+
+    return (
+        <div className="flex flex-col xl:flex-row gap-6 h-full animate-in fade-in duration-500">
+            {/* Left Column: Configuration */}
+            <div className="w-full xl:w-2/3 flex flex-col gap-6">
+                
+                {/* 0. Global Settings */}
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <div>
+                        <h3 className="font-bold text-gray-900 flex items-center gap-2"><CalendarDays size={18}/> Días Laborables</h3>
+                        <p className="text-xs text-gray-500">¿Cuántos días abres al mes?</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                         <div className="flex bg-gray-100 p-1 rounded-lg">
+                             <button onClick={() => setWorkingDays(22)} className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${workingDays === 22 ? 'bg-white shadow text-bakery-600' : 'text-gray-500 hover:text-gray-900'}`}>L-V (22)</button>
+                             <button onClick={() => setWorkingDays(26)} className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${workingDays === 26 ? 'bg-white shadow text-bakery-600' : 'text-gray-500 hover:text-gray-900'}`}>L-S (26)</button>
+                             <button onClick={() => setWorkingDays(30)} className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${workingDays === 30 ? 'bg-white shadow text-bakery-600' : 'text-gray-500 hover:text-gray-900'}`}>30 Días</button>
+                         </div>
+                         <div className="relative w-20">
+                             <input 
+                                type="number" 
+                                className="w-full p-2 border border-gray-300 rounded-lg text-center font-bold focus:border-bakery-500 outline-none bg-white text-gray-900"
+                                value={workingDays}
+                                onChange={e => setWorkingDays(Math.max(1, Math.min(31, parseInt(e.target.value) || 0)))}
+                             />
+                             <span className="absolute -bottom-4 left-0 w-full text-[9px] text-center text-gray-400">Personalizado</span>
+                         </div>
+                    </div>
+                </div>
+
+                {/* 1. Products Config */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col max-h-[500px]">
+                    <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                        <div>
+                             <h3 className="font-bold text-gray-900 flex items-center gap-2"><Package size={18}/> Estimación de Ventas</h3>
+                             <p className="text-xs text-gray-500">Ajusta el volumen diario estimado para calcular ingresos.</p>
+                        </div>
+                    </div>
+                    <div className="overflow-y-auto flex-1 p-0">
+                        <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-gray-500 uppercase bg-white sticky top-0 border-b border-gray-100 z-10">
+                                <tr>
+                                    <th className="px-5 py-3 bg-white">Producto</th>
+                                    <th className="px-5 py-3 bg-white w-24">Costo ($)</th>
+                                    <th className="px-5 py-3 bg-white w-24">Precio ($)</th>
+                                    <th className="px-5 py-3 bg-white text-center w-32">Venta Diaria (Und)</th>
+                                    <th className="px-5 py-3 bg-white text-right">Ganancia Bruta</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {simProducts.map(p => {
+                                    const profit = (p.priceRetail - p.cost) * (p.simDailyQty || 0);
+                                    return (
+                                        <tr key={p.id} className={p.simDailyQty > 0 ? 'bg-orange-50/30' : ''}>
+                                            <td className="px-5 py-3 font-medium text-gray-800">{p.name}</td>
+                                            <td className="px-5 py-3">
+                                                <input 
+                                                    type="number" 
+                                                    className="w-20 p-1 border border-gray-300 rounded text-xs bg-white text-gray-900 focus:ring-1 focus:ring-bakery-400 outline-none transition-all"
+                                                    value={p.cost}
+                                                    onChange={e => updateSimProduct(p.id, 'cost', e.target.value === '' ? ('' as any) : parseFloat(e.target.value))}
+                                                />
+                                            </td>
+                                            <td className="px-5 py-3">
+                                                <input 
+                                                    type="number" 
+                                                    className="w-20 p-1 border border-gray-300 rounded text-xs bg-white text-gray-900 focus:ring-1 focus:ring-bakery-400 outline-none transition-all"
+                                                    value={p.priceRetail}
+                                                    onChange={e => updateSimProduct(p.id, 'priceRetail', e.target.value === '' ? ('' as any) : parseFloat(e.target.value))}
+                                                />
+                                            </td>
+                                            <td className="px-5 py-3 text-center">
+                                                <input 
+                                                    type="number" 
+                                                    className={`w-20 p-1.5 border rounded text-center font-bold outline-none focus:ring-2 focus:ring-bakery-400 transition-all ${p.simDailyQty > 0 ? 'border-bakery-400 bg-white' : 'bg-gray-50 border-gray-300'}`}
+                                                    value={p.simDailyQty}
+                                                    onChange={e => updateSimProduct(p.id, 'simDailyQty', e.target.value === '' ? ('' as any) : parseFloat(e.target.value))}
+                                                />
+                                            </td>
+                                            <td className="px-5 py-3 text-right font-bold text-bakery-700">
+                                                ${profit.toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {/* 2. Expenses Config */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="p-5 border-b border-gray-100 bg-gray-50">
+                        <h3 className="font-bold text-gray-900 flex items-center gap-2"><DollarSign size={18}/> Gastos Operativos</h3>
+                        <p className="text-xs text-gray-500">Agrega gastos fijos. <span className="font-bold">Nota:</span> Los gastos diarios se multiplicarán por {workingDays} días.</p>
+                    </div>
+                    <div className="p-5">
+                        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                            <input 
+                                type="text" 
+                                placeholder="Nombre (ej. Alquiler, Luz)" 
+                                className="flex-1 p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-bakery-500 bg-white text-gray-900"
+                                value={newExpenseName}
+                                onChange={e => setNewExpenseName(e.target.value)}
+                            />
+                            <div className="relative">
+                                <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                                <input 
+                                    type="number" 
+                                    placeholder="0.00" 
+                                    className="w-32 p-2 pl-6 border border-gray-300 rounded-lg text-sm outline-none focus:border-bakery-500 bg-white text-gray-900"
+                                    value={newExpenseAmount}
+                                    onChange={e => setNewExpenseAmount(e.target.value)}
+                                />
+                            </div>
+                            <select 
+                                className="p-2 border border-gray-300 rounded-lg text-sm outline-none bg-white text-gray-900"
+                                value={newExpenseFreq}
+                                onChange={(e) => setNewExpenseFreq(e.target.value as any)}
+                            >
+                                <option value="daily">Diario</option>
+                                <option value="weekly">Semanal</option>
+                                <option value="monthly">Mensual</option>
+                            </select>
+                            <button 
+                                onClick={addExpense}
+                                className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-800 transition-colors"
+                            >
+                                Agregar
+                            </button>
+                        </div>
+
+                        {expenses.length === 0 ? (
+                            <p className="text-center text-gray-400 text-sm py-4 border-2 border-dashed border-gray-100 rounded-xl">No hay gastos registrados aún.</p>
+                        ) : (
+                            <div className="flex flex-wrap gap-2">
+                                {expenses.map(exp => (
+                                    <div key={exp.id} className="bg-red-50 text-red-700 border border-red-100 px-3 py-2 rounded-lg flex items-center gap-3 text-sm">
+                                        <div>
+                                            <span className="font-bold block">{exp.name}</span>
+                                            <span className="text-xs opacity-80">${exp.amount} / {exp.frequency === 'daily' ? 'día' : exp.frequency === 'weekly' ? 'sem' : 'mes'}</span>
+                                        </div>
+                                        <button onClick={() => removeExpense(exp.id)} className="text-red-400 hover:text-red-700"><Trash2 size={14}/></button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
 
-            <div className="border-t border-gray-700 pt-4 mt-4">
-              <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-1">Utilidad Neta Mensual</p>
-              <p className={`text-4xl font-bold ${monthlyNetProfit >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>
-                ${monthlyNetProfit.toLocaleString('es-US', { minimumFractionDigits: 2 })}
-              </p>
-              <p className="text-xs text-gray-500 mt-2">
-                *Proyección basada en 30 días operando con estos promedios.
-              </p>
+            {/* Right Column: Results Dashboard */}
+            <div className="w-full xl:w-1/3">
+                <div className="bg-gray-900 text-white rounded-3xl p-6 shadow-2xl sticky top-6">
+                    <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+                        <Calculator className="text-bakery-400"/> Resultados
+                    </h2>
+
+                    {/* Daily Operational Card (simplified) */}
+                    <div className="bg-white/10 rounded-2xl p-4 mb-4 border border-white/5">
+                        <h4 className="text-xs font-bold text-bakery-400 uppercase tracking-widest mb-3">Día Operativo Típico</h4>
+                        <div className="space-y-2 text-sm">
+                            <div className="flex justify-between text-gray-300">
+                                <span>Ingreso Bruto</span>
+                                <span className="text-white font-medium">${totals.dailyRevenue.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-300">
+                                <span>Ganancia Bruta</span>
+                                <span className="text-emerald-300 font-medium">+${totals.dailyGrossProfit.toFixed(2)}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Monthly Card (The Real Deal) */}
+                    <div className="bg-gradient-to-br from-bakery-600 to-bakery-800 rounded-2xl p-5 mb-6 shadow-lg">
+                        <div className="flex justify-between items-start mb-4 border-b border-white/20 pb-2">
+                             <h4 className="text-xs font-bold text-bakery-200 uppercase tracking-widest">Proyección Mensual</h4>
+                             <div className="flex items-center gap-1 text-xs bg-black/20 px-2 py-0.5 rounded">
+                                <CalendarClock size={12}/> {workingDays} Días
+                             </div>
+                        </div>
+                        
+                        <div className="space-y-2 text-sm mb-4">
+                            <div className="flex justify-between text-bakery-100">
+                                <span>Ventas Totales</span>
+                                <span>${totals.monthlyRevenue.toFixed(0)}</span>
+                            </div>
+                             <div className="flex justify-between text-bakery-100">
+                                <span>Costos Producción</span>
+                                <span>-${totals.monthlyCOGS.toFixed(0)}</span>
+                            </div>
+                            <div className="flex justify-between text-bakery-100 font-bold">
+                                <span>Gastos Fijos/Var.</span>
+                                <span>-${totals.totalMonthlyExpenses.toFixed(0)}</span>
+                            </div>
+                        </div>
+
+                        <div className="text-center py-2 bg-black/20 rounded-xl">
+                            <p className="text-xs text-bakery-200 mb-1">Utilidad Neta Real</p>
+                            <p className={`text-4xl font-bold ${totals.monthlyNetProfit >= 0 ? 'text-white' : 'text-red-300'}`}>
+                                ${totals.monthlyNetProfit.toLocaleString('es-US', {maximumFractionDigits: 0})}
+                            </p>
+                        </div>
+                         <div className="mt-2 text-xs text-center text-bakery-200">
+                             Margen Neto Real: {totals.margin.toFixed(1)}%
+                        </div>
+                    </div>
+
+                    {/* Insights */}
+                    <div className="space-y-2">
+                        {totals.monthlyNetProfit < 0 && (
+                            <div className="flex items-start gap-2 bg-red-500/20 p-3 rounded-lg text-xs text-red-200 border border-red-500/30">
+                                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                                <p>Actualmente estás operando con pérdidas. Necesitas aumentar el volumen de ventas o reducir gastos.</p>
+                            </div>
+                        )}
+                        {totals.monthlyNetProfit > 0 && totals.margin < 15 && (
+                            <div className="flex items-start gap-2 bg-yellow-500/20 p-3 rounded-lg text-xs text-yellow-200 border border-yellow-500/30">
+                                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                                <p>Tu margen es bajo ({totals.margin.toFixed(1)}%). Revisa los costos de producción.</p>
+                            </div>
+                        )}
+                         {totals.monthlyNetProfit > 0 && totals.margin >= 15 && (
+                            <div className="flex items-start gap-2 bg-emerald-500/20 p-3 rounded-lg text-xs text-emerald-200 border border-emerald-500/30">
+                                <TrendingUp size={16} className="flex-shrink-0 mt-0.5" />
+                                <p>¡Buen margen de ganancia! Tu modelo de negocio parece saludable.</p>
+                            </div>
+                        )}
+                    </div>
+
+                </div>
             </div>
-          </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 };
 
 export default AdminDashboard;
