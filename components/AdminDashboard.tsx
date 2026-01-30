@@ -185,6 +185,13 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
     if(activeTab === 'logs') loadLogs();
   };
 
+  const handleDeleteProduct = async (id: string) => {
+      if (confirm('¿Estás seguro de que deseas eliminar este producto del inventario? Esta acción no se puede deshacer.')) {
+          await db.deleteProduct(id);
+          loadData();
+      }
+  };
+
   const handleSaveClient = async (client: Client) => {
     await db.updateClient(client);
     setEditingClient(null);
@@ -776,7 +783,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                           </span>
                         </td>
                         <td className="p-5 text-right">
-                          <button onClick={() => setEditingProduct(p)} className="text-gray-400 hover:text-bakery-600 p-2 transition-colors"><Edit size={18} /></button>
+                          <div className="flex justify-end gap-1">
+                            <button onClick={() => setEditingProduct(p)} className="text-gray-400 hover:text-bakery-600 p-2 transition-colors"><Edit size={18} /></button>
+                            <button onClick={() => handleDeleteProduct(p.id)} className="text-gray-400 hover:text-red-600 p-2 transition-colors"><Trash2 size={18} /></button>
+                          </div>
                         </td>
                       </tr>
                     ))}
