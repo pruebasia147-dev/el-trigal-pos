@@ -1,22 +1,23 @@
-
-import { INITIAL_CLIENTS, INITIAL_PRODUCTS, INITIAL_SALES, INITIAL_SETTINGS } from "../constants";
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { INITIAL_CLIENTS, INITIAL_PRODUCTS, INITIAL_SETTINGS } from "../constants";
 import { AppSettings, Client, Product, Sale, SaleItem, SuspendedSale } from "../types";
 
-const DELAY = 300; // Simulate network latency
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// --- CONFIGURACIÓN DE SUPABASE ---
+const SUPABASE_URL = 'https://okatgcixtvmdjvsyxeau.supabase.co';
+// NOTA: Usamos la clave provista. Si falla la conexión, verificar en Supabase: Settings -> API -> anon public key
+const SUPABASE_KEY = 'sb_publishable_2M2-3m7ATCB0-JBTW1B3AA_etOLVD85';
 
 class DBService {
-  private get<T>(key: string, initial: T): T {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : initial;
+  private supabase: SupabaseClient;
+  private isOnline: boolean = navigator.onLine;
+
+  constructor() {
+    this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    
+    window.addEventListener('online', () => this.isOnline = true);
+    window.addEventListener('offline', () => this.isOnline = false);
   }
 
-  private set(key: string, data: any) {
-    localStorage.setItem(key, JSON.stringify(data));
-  }
-
-  // Helper for ID generation: Creates short, random receipt-like codes (e.g., "K9X-2M1")
   private generateId(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let result = '';
@@ -26,217 +27,141 @@ class DBService {
     return result;
   }
 
-  // --- Init ---
+  // --- Inicialización ---
   async init() {
-    // Check if data exists, if not, initialize with constants.
-    // We do NOT overwrite if data already exists to preserve user data across reloads.
-    if (!localStorage.getItem('products')) this.set('products', INITIAL_PRODUCTS);
-    if (!localStorage.getItem('clients')) this.set('clients', INITIAL_CLIENTS);
-    if (!localStorage.getItem('sales')) this.set('sales', INITIAL_SALES);
-    if (!localStorage.getItem('settings')) this.set('settings', INITIAL_SETTINGS);
-    if (!localStorage.getItem('suspended_sales')) this.set('suspended_sales', []);
+    try {
+        // Intentamos conectar. Si hay error, lo mostramos en consola.
+        const { count, error } = await this.supabase.from('products').select('*', { count: 'exact', head: true });
+        
+        if (error) {
+            console.error("⚠️ Error conectando a Supabase. Verifica tu API Key.", error);
+            return;
+        }
+
+        // Si la base de datos existe pero está vacía, subimos los datos de prueba (constants.ts)
+        if (count === 0) {
+            console.log("Base de datos vacía. Subiendo datos iniciales...");
+            await this.supabase.from('products').insert(INITIAL_PRODUCTS);
+            await this.supabase.from('clients').insert(INITIAL_CLIENTS);
+            
+            // Verificar settings
+            const { data } = await this.supabase.from('settings').select('*').single();
+            if (!data) {
+                await this.supabase.from('settings').insert({ id: 1, ...INITIAL_SETTINGS });
+            }
+        }
+    } catch (e) {
+        console.error("Error crítico en init:", e);
+    }
   }
 
-  // --- BACKUP & RESTORE SYSTEM ---
-  async getDatabaseDump(): Promise<string> {
-      const dump = {
-          products: this.get('products', []),
-          clients: this.get('clients', []),
-          sales: this.get('sales', []),
-          settings: this.get('settings', INITIAL_SETTINGS),
-          suspended_sales: this.get('suspended_sales', []),
-          backupDate: new Date().toISOString()
-      };
-      return JSON.stringify(dump, null, 2);
-  }
-
-  async restoreDatabase(jsonString: string): Promise<boolean> {
-      try {
-          const data = JSON.parse(jsonString);
-          
-          // Basic validation
-          if (!data.products || !data.sales) throw new Error("Archivo de respaldo inválido");
-
-          this.set('products', data.products);
-          this.set('clients', data.clients || []);
-          this.set('sales', data.sales || []);
-          this.set('settings', data.settings || INITIAL_SETTINGS);
-          this.set('suspended_sales', data.suspended_sales || []);
-          
-          return true;
-      } catch (e) {
-          console.error("Restore failed", e);
-          return false;
-      }
-  }
-
-  // --- Products ---
+  // --- Funciones de Productos ---
   async getProducts(): Promise<Product[]> {
-    await sleep(DELAY);
-    return this.get<Product[]>('products', INITIAL_PRODUCTS);
+    const { data, error } = await this.supabase.from('products').select('*');
+    if (error) console.error(error);
+    return data || [];
   }
 
   async updateProduct(updatedProduct: Product): Promise<void> {
-    await sleep(DELAY);
-    const products = this.get<Product[]>('products', []);
-    const index = products.findIndex(p => p.id === updatedProduct.id);
-    if (index >= 0) {
-      products[index] = updatedProduct;
-    } else {
-      products.push({ ...updatedProduct, id: this.generateId() });
-    }
-    this.set('products', products);
+    const productToSave = { ...updatedProduct };
+    if (!productToSave.id) productToSave.id = this.generateId();
+
+    const { error } = await this.supabase.from('products').upsert(productToSave);
+    if (error) throw error;
   }
 
   async deleteProduct(id: string): Promise<void> {
-    const products = this.get<Product[]>('products', []);
-    this.set('products', products.filter(p => p.id !== id));
+    await this.supabase.from('products').delete().eq('id', id);
   }
 
-  // --- Clients ---
+  // --- Funciones de Clientes ---
   async getClients(): Promise<Client[]> {
-    await sleep(DELAY);
-    return this.get<Client[]>('clients', INITIAL_CLIENTS);
+    const { data, error } = await this.supabase.from('clients').select('*');
+    if (error) console.error(error);
+    return data || [];
   }
 
   async updateClient(updatedClient: Client): Promise<void> {
-    await sleep(DELAY);
-    const clients = this.get<Client[]>('clients', []);
-    const index = clients.findIndex(c => c.id === updatedClient.id);
-    if (index >= 0) {
-      clients[index] = updatedClient;
-    } else {
-      clients.push({ ...updatedClient, id: this.generateId() });
-    }
-    this.set('clients', clients);
+    const clientToSave = { ...updatedClient };
+    if (!clientToSave.id) clientToSave.id = this.generateId();
+
+    const { error } = await this.supabase.from('clients').upsert(clientToSave);
+    if (error) throw error;
   }
 
-  // New Method: Register Payment (Abono)
   async registerClientPayment(clientId: string, amount: number): Promise<void> {
-    await sleep(DELAY);
-    const clients = this.get<Client[]>('clients', []);
-    const index = clients.findIndex(c => c.id === clientId);
-    
-    if (index === -1) throw new Error("Cliente no encontrado");
-
-    // Reduce debt
-    clients[index].debt = Math.max(0, clients[index].debt - amount);
-    
-    this.set('clients', clients);
+    const { data: client } = await this.supabase.from('clients').select('debt').eq('id', clientId).single();
+    if (!client) throw new Error("Cliente no encontrado");
+    const newDebt = Math.max(0, client.debt - amount);
+    await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
   }
 
-  // --- Settings ---
-  getSettings(): AppSettings {
-    return this.get<AppSettings>('settings', INITIAL_SETTINGS);
+  // --- Configuración ---
+  async getSettings(): Promise<AppSettings> {
+    const { data } = await this.supabase.from('settings').select('*').single();
+    if (data) return data;
+    return INITIAL_SETTINGS;
   }
 
-  saveSettings(settings: AppSettings) {
-    this.set('settings', settings);
+  async saveSettings(settings: AppSettings): Promise<void> {
+    await this.supabase.from('settings').upsert({ id: 1, ...settings });
   }
 
-  // --- Suspended Sales (Pause/Resume) ---
+  // --- Ventas Suspendidas ---
   async getSuspendedSales(): Promise<SuspendedSale[]> {
-      // No delay for this UI interaction usually
-      return this.get<SuspendedSale[]>('suspended_sales', []);
+      const { data } = await this.supabase.from('suspended_sales').select('*');
+      return data || [];
   }
 
   async addSuspendedSale(sale: SuspendedSale): Promise<void> {
-      const list = this.get<SuspendedSale[]>('suspended_sales', []);
-      // Ensure the ID is unique if passed manually, or generate one
-      const newSale = { ...sale, id: sale.id || this.generateId() };
-      list.push(newSale);
-      this.set('suspended_sales', list);
+      const saleToSave = { ...sale, id: sale.id || this.generateId() };
+      await this.supabase.from('suspended_sales').insert(saleToSave);
   }
 
   async removeSuspendedSale(id: string): Promise<void> {
-      const list = this.get<SuspendedSale[]>('suspended_sales', []);
-      this.set('suspended_sales', list.filter(s => s.id !== id));
+      await this.supabase.from('suspended_sales').delete().eq('id', id);
   }
 
-  // --- Sales & Transactions ---
+  // --- Ventas ---
   async getSales(): Promise<Sale[]> {
-    await sleep(DELAY);
-    return this.get<Sale[]>('sales', []);
+    // Traemos las últimas 200 ventas para no saturar
+    const { data, error } = await this.supabase.from('sales').select('*').order('date', { ascending: false }).limit(200);
+    if (error) console.error(error);
+    return data || [];
   }
 
-  // Update an existing sale (Admin Feature)
   async updateSale(updatedSale: Sale): Promise<void> {
-      await sleep(DELAY);
-      const sales = this.get<Sale[]>('sales', []);
-      const index = sales.findIndex(s => s.id === updatedSale.id);
-      
-      if (index >= 0) {
-          const oldSale = sales[index];
-          
-          // Basic Debt Adjustment Logic
-          if (updatedSale.type === 'dispatch' && updatedSale.clientId) {
-              const clients = this.get<Client[]>('clients', []);
-              const clientIndex = clients.findIndex(c => c.id === updatedSale.clientId);
-              if (clientIndex >= 0) {
-                  const debtDiff = updatedSale.totalAmount - oldSale.totalAmount;
-                  clients[clientIndex].debt += debtDiff;
-                  this.set('clients', clients);
-              }
-          }
-
-          sales[index] = updatedSale;
-          this.set('sales', sales);
-      }
+      await this.supabase.from('sales').update(updatedSale).eq('id', updatedSale.id);
   }
 
-  // Delete Sale (Reverses Stock and Debt)
   async deleteSale(saleId: string): Promise<void> {
-      await sleep(DELAY);
-      const sales = this.get<Sale[]>('sales', []);
-      const saleIndex = sales.findIndex(s => s.id === saleId);
-      
-      if (saleIndex === -1) return;
+      // 1. Obtener la venta
+      const { data: sale } = await this.supabase.from('sales').select('*').eq('id', saleId).single();
+      if (!sale) return;
 
-      const sale = sales[saleIndex];
-      const products = this.get<Product[]>('products', []);
-      const clients = this.get<Client[]>('clients', []);
-
-      // 1. Revert Stock (Add items back)
-      sale.items.forEach(item => {
-          const prod = products.find(p => p.id === item.productId);
+      // 2. Devolver productos al Stock
+      for (const item of sale.items) {
+          const { data: prod } = await this.supabase.from('products').select('stock').eq('id', item.productId).single();
           if (prod) {
-              prod.stock += item.quantity;
-          }
-      });
-
-      // 2. Revert Debt (If it was a credit sale)
-      if (sale.type === 'dispatch' && sale.clientId) {
-          const client = clients.find(c => c.id === sale.clientId);
-          if (client) {
-              // Ensure we don't go below zero
-              client.debt = Math.max(0, client.debt - sale.totalAmount);
+              await this.supabase.from('products').update({ stock: prod.stock + item.quantity }).eq('id', item.productId);
           }
       }
 
-      // 3. Remove Sale Record
-      sales.splice(saleIndex, 1);
+      // 3. Ajustar deuda si era un despacho
+      if (sale.type === 'dispatch' && sale.clientId) {
+          const { data: client } = await this.supabase.from('clients').select('debt').eq('id', sale.clientId).single();
+          if (client) {
+              const newDebt = Math.max(0, client.debt - sale.totalAmount);
+              await this.supabase.from('clients').update({ debt: newDebt }).eq('id', sale.clientId);
+          }
+      }
 
-      // Save all changes
-      this.set('products', products);
-      this.set('clients', clients);
-      this.set('sales', sales);
+      // 4. Borrar el registro
+      await this.supabase.from('sales').delete().eq('id', saleId);
   }
 
-  // Transaction: Retail Sale (Stock reduction only)
   async createRetailSale(items: SaleItem[], sellerId: string): Promise<void> {
-    await sleep(DELAY);
-    const products = this.get<Product[]>('products', []);
-    
-    // Deduct stock
-    items.forEach(item => {
-      const product = products.find(p => p.id === item.productId);
-      if (product) {
-        product.stock -= item.quantity;
-      }
-    });
-
     const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
-    
     const sale: Sale = {
       id: this.generateId(),
       date: new Date().toISOString(),
@@ -246,34 +171,22 @@ class DBService {
       sellerId
     };
 
-    const sales = this.get<Sale[]>('sales', []);
-    sales.push(sale);
+    const { error } = await this.supabase.from('sales').insert(sale);
+    if (error) throw error;
 
-    this.set('products', products);
-    this.set('sales', sales);
+    for (const item of items) {
+        const { data: prod } = await this.supabase.from('products').select('stock').eq('id', item.productId).single();
+        if (prod) {
+            await this.supabase.from('products').update({ stock: prod.stock - item.quantity }).eq('id', item.productId);
+        }
+    }
   }
 
-  // Transaction: Dispatch Sale (Stock reduction + Client Debt Increase)
   async createDispatchSale(clientId: string, items: SaleItem[], sellerId: string): Promise<void> {
-    await sleep(DELAY);
-    const products = this.get<Product[]>('products', []);
-    const clients = this.get<Client[]>('clients', []);
-
-    const clientIndex = clients.findIndex(c => c.id === clientId);
-    if (clientIndex === -1) throw new Error("Cliente no encontrado");
-
-    // Deduct stock
-    items.forEach(item => {
-      const product = products.find(p => p.id === item.productId);
-      if (product) {
-        product.stock -= item.quantity;
-      }
-    });
+    const { data: client } = await this.supabase.from('clients').select('*').eq('id', clientId).single();
+    if (!client) throw new Error("Cliente no encontrado");
 
     const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
-
-    // Increase Debt
-    clients[clientIndex].debt += totalAmount;
 
     const sale: Sale = {
       id: this.generateId(),
@@ -282,16 +195,36 @@ class DBService {
       items,
       totalAmount,
       clientId,
-      clientName: clients[clientIndex].name,
+      clientName: client.name,
       sellerId
     };
 
-    const sales = this.get<Sale[]>('sales', []);
-    sales.push(sale);
+    await this.supabase.from('sales').insert(sale);
+    await this.supabase.from('clients').update({ debt: client.debt + totalAmount }).eq('id', clientId);
 
-    this.set('products', products);
-    this.set('clients', clients);
-    this.set('sales', sales);
+    for (const item of items) {
+        const { data: prod } = await this.supabase.from('products').select('stock').eq('id', item.productId).single();
+        if (prod) {
+            await this.supabase.from('products').update({ stock: prod.stock - item.quantity }).eq('id', item.productId);
+        }
+    }
+  }
+  
+  // Respaldos (Mantiene funcionalidad básica)
+  async getDatabaseDump(): Promise<string> {
+      const [p, c, s, st] = await Promise.all([
+          this.getProducts(), this.getClients(), this.getSales(), this.getSettings()
+      ]);
+      return JSON.stringify({ products: p, clients: c, sales: s, settings: st, date: new Date() }, null, 2);
+  }
+
+  async restoreDatabase(jsonString: string): Promise<boolean> {
+      try {
+          const data = JSON.parse(jsonString);
+          if (data.products) await this.supabase.from('products').upsert(data.products);
+          if (data.clients) await this.supabase.from('clients').upsert(data.clients);
+          return true;
+      } catch { return false; }
   }
 }
 
