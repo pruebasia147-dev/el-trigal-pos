@@ -5,7 +5,7 @@ import { db } from '../services/db';
 import html2canvas from 'html2canvas';
 import { 
   Calendar, TrendingUp, DollarSign, ShoppingBag, BarChart, 
-  FileText, Search, Clock, MapPin, X, ArrowRight, Printer, Download, Share2, Camera, Store as StoreIcon, Pencil, AlertTriangle, Trash2, CreditCard, Truck
+  FileText, Search, Clock, MapPin, X, ArrowRight, Printer, Download, Share2, Camera, Store as StoreIcon, Pencil, AlertTriangle, Trash2, CreditCard, Truck, CheckCircle
 } from 'lucide-react';
 
 interface SalesAnalyticsProps {
@@ -172,6 +172,23 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
           console.error("Error capturing receipt", error);
           alert("No se pudo generar la imagen. Intente descargar el PDF.");
           setIsCapturing(false);
+      }
+  };
+
+  // --- PAY DISPATCH LOGIC ---
+  const handlePayDispatch = async (sale: Sale) => {
+      if (sale.type !== 'dispatch' || !sale.clientId) return;
+
+      const confirmMsg = `¿Deseas registrar el pago TOTAL de esta factura por $${sale.totalAmount.toFixed(2)}?\n\nEsto se abonará a la deuda de ${sale.clientName} y sumará a la caja de hoy.`;
+      
+      if (confirm(confirmMsg)) {
+          try {
+              await db.registerClientPayment(sale.clientId, sale.totalAmount, `Pago Factura #${sale.id.slice(0,6)}`);
+              alert('Pago registrado exitosamente. El dinero ahora está en caja.');
+              await onRefresh();
+          } catch (error) {
+              alert('Error registrando el pago.');
+          }
       }
   };
 
@@ -379,6 +396,15 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                                 </td>
                                 <td className="px-8 py-5 text-center">
                                     <div className="flex items-center justify-center gap-2">
+                                        {sale.type === 'dispatch' && (
+                                            <button
+                                                onClick={() => handlePayDispatch(sale)}
+                                                className="text-green-600 hover:text-green-800 hover:bg-green-50 p-2 rounded-full transition-all"
+                                                title="Registrar Cobro"
+                                            >
+                                                <DollarSign size={18}/>
+                                            </button>
+                                        )}
                                         <button 
                                             onClick={() => openEditModal(sale)}
                                             className="text-gray-400 hover:text-bakery-600 hover:bg-bakery-50 p-2 rounded-full transition-all"

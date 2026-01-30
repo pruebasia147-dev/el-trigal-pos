@@ -27,6 +27,14 @@ export interface Client {
   address: string;
 }
 
+export interface Payment {
+  id: string;
+  clientId: string;
+  amount: number;
+  date: string;
+  note?: string;
+}
+
 export interface CartItem extends Product {
   quantity: number;
 }
