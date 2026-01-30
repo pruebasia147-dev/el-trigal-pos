@@ -1,11 +1,11 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { Product, Sale, SaleItem, AppSettings } from '../types';
-import { db } from '../services/db'; // Import DB
+import { db } from '../services/db'; 
 import html2canvas from 'html2canvas';
 import { 
   Calendar, TrendingUp, DollarSign, ShoppingBag, BarChart, 
-  FileText, Search, Clock, MapPin, X, ArrowRight, Printer, Download, Share2, Camera, Store as StoreIcon, Pencil, AlertTriangle, Trash2
+  FileText, Search, Clock, MapPin, X, ArrowRight, Printer, Download, Share2, Camera, Store as StoreIcon, Pencil, AlertTriangle, Trash2, CreditCard, Truck
 } from 'lucide-react';
 
 interface SalesAnalyticsProps {
@@ -66,6 +66,13 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
         return matchesDate && matchesSearch;
     }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+    // Separate Cash vs Credit for Charting & Stats
+    const cashSales = rangeSales.filter(s => s.type === 'pos');
+    const creditSales = rangeSales.filter(s => s.type === 'dispatch');
+
+    const totalCash = cashSales.reduce((acc, curr) => acc + curr.totalAmount, 0);
+    const totalCredit = creditSales.reduce((acc, curr) => acc + curr.totalAmount, 0);
+
     const chartData: Record<string, number> = {};
     rangeSales.forEach(s => {
       const date = new Date(s.date);
@@ -80,10 +87,10 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
 
     return {
       sales: rangeSales,
-      dispatchSales: rangeSales.filter(s => s.type === 'dispatch'),
-      total: rangeSales.reduce((acc, curr) => acc + curr.totalAmount, 0),
+      totalCash,
+      totalCredit,
+      totalCombined: totalCash + totalCredit,
       count: rangeSales.length,
-      avgTicket: rangeSales.length ? rangeSales.reduce((acc, curr) => acc + curr.totalAmount, 0) / rangeSales.length : 0,
       chart: chartData
     };
   }, [sales, timeFrame, searchTerm]);
@@ -139,8 +146,6 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
               }
 
               const file = new File([blob], `recibo-${selectedSale?.id.slice(0,6)}.png`, { type: "image/png" });
-              
-              // TEXTO WHATSAPP SIMPLIFICADO
               const shareText = `Comprobante de pago`;
 
               if (navigator.share && navigator.canShare({ files: [file] })) {
@@ -191,9 +196,8 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
       
       const filteredItems = editItems.filter(i => i.quantity > 0);
 
-      // --- CRITICAL FIX: PREVENT EMPTY INVOICE ---
       if (filteredItems.length === 0) {
-          alert("⚠️ ERROR: No puedes guardar una factura vacía.\n\nLa venta debe tener al menos un producto con cantidad mayor a 0.\n\nSi deseas anular esta venta, por favor contacta al soporte para habilitar la eliminación.");
+          alert("⚠️ ERROR: No puedes guardar una factura vacía.");
           return;
       }
       
@@ -209,13 +213,12 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
       alert('Venta actualizada correctamente.');
       setIsEditingSale(false);
       setSelectedSale(null);
-      // Reload to ensure all calculations and charts are fresh and accurate
       window.location.reload(); 
   };
 
   // --- DELETE LOGIC ---
   const handleDeleteSale = async (sale: Sale) => {
-      if (confirm(`⚠️ ¿Estás seguro de eliminar la factura #${sale.id.slice(0,6)}?\n\n- Se devolverá el stock de los productos.\n- Se ajustará la deuda del cliente si fue a crédito.\n- Esta acción no se puede deshacer.`)) {
+      if (confirm(`⚠️ ¿Estás seguro de eliminar la factura #${sale.id.slice(0,6)}?\n\n- Se devolverá el stock.\n- Se ajustará la deuda del cliente si fue a crédito.`)) {
           await db.deleteSale(sale.id);
           window.location.reload();
       }
@@ -237,7 +240,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
             </div>
             
             <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto items-center">
-                {/* Search - Fixed BG color */}
+                {/* Search */}
                 <div className="relative flex-1 sm:w-64">
                     <Search className="absolute left-3 top-3 text-gray-400" size={18} />
                     <input 
@@ -268,28 +271,33 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
             </div>
           </div>
 
-          {/* Quick Stats */}
+          {/* SPLIT STATS: CASH vs CREDIT */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Card 1: Cash Sales */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group">
                   <div>
-                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Total Facturado</p>
-                      <p className="text-3xl font-bold text-gray-900">${filteredData.total.toLocaleString('es-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ventas Contado (Caja)</p>
+                      <p className="text-3xl font-bold text-gray-900">${filteredData.totalCash.toLocaleString('es-US', {minimumFractionDigits: 2})}</p>
                   </div>
-                  <div className="p-4 bg-green-50 text-green-600 rounded-2xl group-hover:scale-110 transition-transform"><DollarSign size={24}/></div>
+                  <div className="p-4 bg-green-50 text-green-600 rounded-2xl group-hover:scale-110 transition-transform"><CreditCard size={24}/></div>
               </div>
+              
+              {/* Card 2: Credit Sales */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group">
                   <div>
-                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Transacciones</p>
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ventas Crédito (Por Cobrar)</p>
+                      <p className="text-3xl font-bold text-blue-600">${filteredData.totalCredit.toLocaleString('es-US', {minimumFractionDigits: 2})}</p>
+                  </div>
+                  <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl group-hover:scale-110 transition-transform"><Truck size={24}/></div>
+              </div>
+
+              {/* Card 3: Total Operations Count */}
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group">
+                  <div>
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Total Operaciones</p>
                       <p className="text-3xl font-bold text-gray-900">{filteredData.count}</p>
                   </div>
-                  <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl group-hover:scale-110 transition-transform"><FileText size={24}/></div>
-              </div>
-              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group">
-                  <div>
-                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ticket Promedio</p>
-                      <p className="text-3xl font-bold text-gray-900">${filteredData.avgTicket.toFixed(2)}</p>
-                  </div>
-                  <div className="p-4 bg-orange-50 text-orange-600 rounded-2xl group-hover:scale-110 transition-transform"><TrendingUp size={24}/></div>
+                  <div className="p-4 bg-orange-50 text-orange-600 rounded-2xl group-hover:scale-110 transition-transform"><FileText size={24}/></div>
               </div>
           </div>
 
@@ -297,7 +305,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
           <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm flex flex-col relative overflow-hidden">
             <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-6 flex items-center gap-2 relative z-10">
             <BarChart size={16}/>
-            Análisis Temporal
+            Tendencia Global (Contado + Crédito)
             </h3>
             
             <div className="overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent relative z-10">
@@ -322,7 +330,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                         <tr>
                             <th className="px-8 py-4">Fecha / Hora</th>
                             <th className="px-8 py-4">ID Factura</th>
-                            <th className="px-8 py-4">Cliente / Tipo</th>
+                            <th className="px-8 py-4">Cliente / Estatus</th>
                             <th className="px-8 py-4 text-center">Items</th>
                             <th className="px-8 py-4 text-right">Total</th>
                             <th className="px-8 py-4 text-center">Acciones</th>
@@ -347,17 +355,17 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                                 <td className="px-8 py-5">
                                     <div className="flex flex-col">
                                         {sale.type === 'pos' ? (
-                                            <span className="font-bold text-gray-800">Venta Mostrador</span>
+                                            <span className="font-bold text-gray-800">Mostrador (Caja)</span>
                                         ) : (
                                             <span className="font-bold text-blue-700">{sale.clientName}</span>
                                         )}
                                         <div className="flex items-center gap-1 mt-1">
                                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide border ${
                                                 sale.type === 'pos' 
-                                                ? 'bg-orange-50 text-orange-700 border-orange-100' 
+                                                ? 'bg-green-50 text-green-700 border-green-100' 
                                                 : 'bg-blue-50 text-blue-700 border-blue-100'
                                             }`}>
-                                                {sale.type === 'pos' ? 'Local' : 'Despacho'}
+                                                {sale.type === 'pos' ? 'Pagado' : 'Por Cobrar'}
                                             </span>
                                         </div>
                                     </div>
@@ -401,14 +409,12 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
           </div>
       </div>
 
-      {/* Invoice Modal (Screen View) - FIXED SCROLLING */}
+      {/* Invoice Modal (Screen View) */}
       {selectedSale && !isEditingSale && (
         <div className="print:hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            {/* Added 'flex flex-col' and 'max-h' constraints to ensure scrolling works */}
             <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col h-auto max-h-[90vh]">
                 
                 {/* --- CAPTURE AREA START --- */}
-                {/* Added overflow-y-auto to this wrapper so it scrolls */}
                 <div id="receipt-capture-area-wrapper" className="flex-1 overflow-y-auto bg-white">
                     <div id="receipt-capture-area" className="bg-white antialiased">
                         {/* Modal Header */}
@@ -425,7 +431,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                             <p className="text-gray-400 text-[10px] leading-tight opacity-80">{settings.rif} | {settings.address}</p>
                         </div>
 
-                        {/* Receipt Body (Overlapping Header) */}
+                        {/* Receipt Body */}
                         <div className="px-5 -mt-4">
                             <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-4 mb-4">
                                 {/* Metadata */}
@@ -441,14 +447,16 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                                         </div>
                                     </div>
                                     
-                                    {/* Client Row - NEW */}
                                     <div>
                                         <p className="font-bold text-gray-400 text-[10px] uppercase">Cliente</p>
                                         <p className="font-bold text-bakery-700 text-sm">{selectedSale.clientName || 'Cliente Mostrador'}</p>
+                                        {selectedSale.type === 'dispatch' && (
+                                            <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold uppercase mt-1 inline-block">Crédito</span>
+                                        )}
                                     </div>
                                 </div>
                                 
-                                {/* Items Table - REORDERED: Product | Cant | Inv. | Sub. */}
+                                {/* Items Table */}
                                 <table className="w-full mb-4">
                                     <thead>
                                         <tr className="text-[10px] text-gray-400 uppercase tracking-wider border-b border-gray-100">
@@ -461,17 +469,13 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                                     <tbody className="text-xs">
                                         {selectedSale.items.map((item, idx) => (
                                             <tr key={idx} className="border-b border-gray-50 last:border-0">
-                                                {/* 1. Producto */}
                                                 <td className="py-2 text-gray-800 font-medium whitespace-normal pr-1 align-top leading-tight text-left">
                                                     {item.productName}
                                                 </td>
-                                                {/* 2. Cantidad */}
                                                 <td className="py-2 font-bold text-gray-600 align-top text-center">{item.quantity}</td>
-                                                {/* 3. Inversión */}
                                                 <td className="py-2 text-right text-gray-500 whitespace-nowrap align-top">
                                                     ${item.unitPrice.toFixed(2)}
                                                 </td>
-                                                {/* 4. Subtotal */}
                                                 <td className="py-2 text-right font-bold text-gray-900 whitespace-nowrap align-top">
                                                     ${item.subtotal.toFixed(2)}
                                                 </td>
@@ -495,7 +499,6 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                 </div>
                 {/* --- CAPTURE AREA END --- */}
 
-                {/* Footer Actions (Outside Capture Area) - Fixed to bottom */}
                 <div className="p-5 bg-gray-50 border-t border-gray-200 mt-auto flex-none">
                     <button 
                         onClick={handleSmartShare}
@@ -522,16 +525,11 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
         </div>
       )}
 
-      {/* EDIT SALE MODAL */}
+      {/* EDIT SALE MODAL (Kept same logic) */}
       {isEditingSale && selectedSale && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl animate-in zoom-in duration-200 p-6">
                   <h3 className="text-lg font-bold text-gray-900 mb-4">Editar Venta #{selectedSale.id.slice(0,6)}</h3>
-                  <p className="text-sm text-gray-500 mb-4 bg-yellow-50 p-3 rounded-lg border border-yellow-100 flex items-start gap-2">
-                      <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
-                      <span>Modificar cantidades recalculará el total automáticamente. Si dejas todo en cero, la venta no podrá guardarse.</span>
-                  </p>
-                  
                   <div className="max-h-[50vh] overflow-y-auto mb-4 border rounded-xl">
                       <table className="w-full text-sm">
                           <thead className="bg-gray-50 text-gray-500 font-bold">
@@ -583,7 +581,6 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
       )}
 
       {/* --- HIDDEN SINGLE INVOICE PRINTER COMPONENT --- */}
-      {/* Uses fixed positioning to ensure full coverage during print */}
       <div className="hidden print:block print:fixed print:inset-0 print:bg-white print:z-[10000] print:h-screen print:w-screen print:overflow-visible">
          {saleToPrint && <SingleInvoiceTemplate sale={saleToPrint} settings={settings} />}
       </div>
@@ -591,7 +588,6 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
   );
 };
 
-// ... (Rest of component remains unchanged) ...
 const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = ({ sale, settings }) => {
     return (
         <div className="w-full h-full bg-white text-black p-10 font-sans text-sm leading-normal max-w-[210mm] mx-auto print:p-0">
@@ -627,10 +623,6 @@ const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = (
                             <span className="text-gray-500 uppercase text-[10px] font-bold tracking-wider">Fecha Emisión</span>
                             <span className="font-medium text-gray-800">{new Date(sale.date).toLocaleDateString()}</span>
                         </div>
-                        <div className="flex items-center gap-4">
-                            <span className="text-gray-500 uppercase text-[10px] font-bold tracking-wider">Hora</span>
-                            <span className="font-medium text-gray-800">{new Date(sale.date).toLocaleTimeString()}</span>
-                        </div>
                      </div>
                  </div>
              </div>
@@ -643,7 +635,7 @@ const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = (
                     {sale.clientId ? (
                          <div className="text-gray-600 space-y-1">
                             <p>ID Cliente: <span className="font-mono text-gray-800">{sale.clientId.slice(0,6)}</span></p>
-                            <p>Dirección Registrada en Sistema</p>
+                            <p className="text-blue-600 font-bold text-xs uppercase bg-blue-50 px-2 py-1 inline-block rounded">Venta a Crédito</p>
                          </div>
                     ) : (
                         <p className="text-gray-500 italic">Venta Directa en Caja</p>
@@ -652,7 +644,7 @@ const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = (
                  <div className="text-right">
                      <div className="bg-white border border-gray-200 px-4 py-2 rounded text-center print:border-gray-300">
                          <p className="text-[10px] text-gray-400 font-bold uppercase">Tipo</p>
-                         <p className="font-bold text-gray-800 uppercase">{sale.type === 'pos' ? 'Contado' : 'Nota de Entrega'}</p>
+                         <p className="font-bold text-gray-800 uppercase">{sale.type === 'pos' ? 'Contado' : 'Crédito'}</p>
                      </div>
                  </div>
              </div>
@@ -691,10 +683,6 @@ const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = (
                          <span className="text-gray-500 font-medium">Subtotal</span>
                          <span className="text-gray-800 font-bold font-mono">${sale.totalAmount.toFixed(2)}</span>
                      </div>
-                     <div className="flex justify-between py-2 border-b border-gray-100 print:border-gray-200">
-                         <span className="text-gray-500 font-medium">Impuestos (0%)</span>
-                         <span className="text-gray-800 font-bold font-mono">$0.00</span>
-                     </div>
                      <div className="flex justify-between items-center pt-4">
                          <span className="text-gray-900 font-bold text-lg">TOTAL</span>
                          <div className="text-right">
@@ -714,7 +702,6 @@ const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = (
                      </div>
                      <div className="text-right">
                          <p className="font-mono">Generado por Sistema {settings.businessName}</p>
-                         <p>Original: Cliente / Copia: Archivo</p>
                      </div>
                  </div>
              </div>
@@ -722,7 +709,6 @@ const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = (
     );
 };
 
-// ... (Chart component remains the same) ...
 const ReportLineChart: React.FC<{ entries: [string, number][], maxVal: number }> = ({ entries, maxVal }) => {
   if (entries.length < 2) {
     return (

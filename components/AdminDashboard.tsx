@@ -9,7 +9,7 @@ import {
   TrendingUp, DollarSign, Edit, Menu, X, Plus, BarChart3, 
   Wallet, ArrowUpRight, CalendarClock, Activity, Calculator, Trash2,
   AlertCircle, CalendarDays, Coins, Warehouse, PieChart, Save, Upload, Store,
-  MessageSquare, Send, Bot, ScrollText, UserCog
+  MessageSquare, Send, Bot, ScrollText, UserCog, AlertTriangle, Loader2, Truck
 } from 'lucide-react';
 
 interface AdminProps {
@@ -36,6 +36,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [settings, setSettings] = useState<AppSettings>({ exchangeRate: 0, businessName: '', rif: '', address: '', phone: '' });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  // Reset States
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetStatus, setResetStatus] = useState('');
 
   // Chat State
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -80,6 +84,30 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
     await db.saveSettings(settings);
     alert('Ajustes guardados correctamente.');
     loadLogs();
+  };
+
+  const handleResetSales = async () => {
+      if (confirm('⚠️ ATENCIÓN: Esta acción dejará el sistema en CERO.\n\n¿Deseas eliminar todas las ventas y reiniciar deudas?')) {
+          setIsResetting(true);
+          setResetStatus('Borrando datos...');
+          try {
+              // 1. Ejecutar limpieza en BD
+              await db.clearAllSalesData((status) => setResetStatus(status));
+              
+              // 2. Limpiar estado local INMEDIATAMENTE para feedback visual "en cero"
+              setSales([]);
+              setClients(prev => prev.map(c => ({...c, debt: 0})));
+              
+              alert('✅ Sistema reiniciado a CERO exitosamente.');
+              
+              // 3. Recargar para asegurar consistencia
+              window.location.reload();
+          } catch (e: any) {
+              alert(`Error: ${e.message}`);
+              setIsResetting(false);
+              setResetStatus('');
+          }
+      }
   };
 
   const handleSaveProduct = async (product: Product) => {
@@ -157,16 +185,23 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
       return revenue - cost;
     };
 
-    // 1. Daily Stats
+    // 1. Daily Stats (Separated by Cash vs Credit)
     const todaySales = sales.filter(s => new Date(s.date) >= startOfToday);
-    const todayRevenue = todaySales.reduce((acc, curr) => acc + curr.totalAmount, 0);
-    const todayProfit = getProfit(todaySales);
+    
+    // Cash Sales (Mostrador) - Dinero Real
+    const todayCashSales = todaySales.filter(s => s.type === 'pos');
+    const todayCashRevenue = todayCashSales.reduce((acc, curr) => acc + curr.totalAmount, 0);
+    const todayCashProfit = getProfit(todayCashSales);
+
+    // Credit Sales (Despacho) - Cuentas por Cobrar
+    const todayCreditSales = todaySales.filter(s => s.type === 'dispatch');
+    const todayCreditRevenue = todayCreditSales.reduce((acc, curr) => acc + curr.totalAmount, 0);
+    const todayCreditProfit = getProfit(todayCreditSales);
 
     // 2. Monthly Stats
     const monthSales = sales.filter(s => new Date(s.date) >= startOfMonth);
-    const monthRevenue = monthSales.reduce((acc, curr) => acc + curr.totalAmount, 0);
-    const monthProfit = getProfit(monthSales);
-
+    const monthRevenue = monthSales.reduce((acc, curr) => acc + curr.totalAmount, 0); // Total operations
+    
     // 3. Projections
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const daysPassed = Math.max(1, now.getDate());
@@ -179,11 +214,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
     const lowStockCount = products.filter(p => p.stock <= 20).length;
 
     return { 
-        todayRevenue, 
-        todayProfit, 
+        todayCashRevenue, 
+        todayCashProfit, 
+        todayCreditRevenue,
+        todayCreditProfit,
         todayCount: todaySales.length,
         monthRevenue, 
-        monthProfit, 
         projectedRevenue,
         totalDebt,
         inventoryValue,
@@ -205,7 +241,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
           unitCost: number 
       }> = {};
 
-      financials.todaySales.forEach(sale => {
+      // Filter only POS (Cash) sales for "Realized Profit"
+      const realizedSales = financials.todaySales.filter(s => s.type === 'pos');
+
+      realizedSales.forEach(sale => {
           sale.items.forEach(item => {
               const prod = products.find(p => p.id === item.productId);
               // Use current cost if available, else estimate
@@ -321,142 +360,127 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                 </div>
             </div>
             
-            {/* --- Section 1: Today's Pulse --- */}
+            {/* --- Section 1: Financial Pulse --- */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                 {/* Today Sales */}
+                 
+                 {/* CASH FLOW CARD (REAL MONEY) */}
                  <div className="bg-gray-900 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group">
-                    <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform"><Activity size={80}/></div>
+                    <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform"><DollarSign size={80}/></div>
                     <div>
                         <div className="flex items-center gap-2 text-bakery-400 mb-1">
                             <Activity size={16} />
-                            <span className="text-xs font-bold uppercase tracking-wider">Ventas de Hoy</span>
+                            <span className="text-xs font-bold uppercase tracking-wider">Dinero en Caja (Hoy)</span>
                         </div>
-                        <h3 className="text-4xl font-bold tracking-tight">${financials.todayRevenue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        <p className="text-sm text-gray-400 mt-1">{financials.todayCount} operaciones cerradas</p>
+                        <h3 className="text-4xl font-bold tracking-tight">${financials.todayCashRevenue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                        <p className="text-sm text-gray-400 mt-1">Ventas de Mostrador (Contado)</p>
                     </div>
                  </div>
 
-                 {/* Today Profit (CLICKABLE) */}
-                 <div 
-                    onClick={() => setShowProfitDetail(true)}
-                    className="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group cursor-pointer hover:shadow-2xl hover:scale-[1.01] transition-all"
-                 >
-                     <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform"><Wallet size={80}/></div>
-                     <div>
-                        <div className="flex items-center gap-2 text-emerald-100 mb-1">
-                            <Wallet size={16} />
-                            <span className="text-xs font-bold uppercase tracking-wider">Ganancia Neta (Hoy)</span>
-                        </div>
-                        <h3 className="text-4xl font-bold tracking-tight">${financials.todayProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        <div className="flex items-center justify-between mt-1">
-                             <p className="text-sm text-emerald-100 opacity-90">Margen real descontando costos</p>
-                             <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 hover:bg-white/30 transition-colors">
-                                <PieChart size={12} /> Ver Desglose
-                             </span>
-                        </div>
-                    </div>
-                 </div>
-            </div>
-
-            {/* --- Section 2: Month Overview & Projection --- */}
-            <div>
-                <h3 className="text-lg font-bold text-gray-800 mb-4">Rendimiento Mensual</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div 
-                        onClick={() => setActiveTab('analytics')}
-                        className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-all hover:border-bakery-200 group"
-                    >
-                        <div className="flex justify-between items-start">
-                            <p className="text-gray-500 text-xs font-bold uppercase mb-2 group-hover:text-bakery-600 transition-colors">Acumulado Mes</p>
-                            <ArrowUpRight size={16} className="text-gray-300 group-hover:text-bakery-500"/>
-                        </div>
-                        <p className="text-3xl font-bold text-gray-900">${financials.monthRevenue.toLocaleString('es-US', {minimumFractionDigits: 0})}</p>
-                    </div>
-                    <div 
-                        onClick={() => setActiveTab('analytics')}
-                        className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-all hover:border-emerald-200 group"
-                    >
-                        <div className="flex justify-between items-start">
-                            <p className="text-gray-500 text-xs font-bold uppercase mb-2 group-hover:text-emerald-600 transition-colors">Ganancia Mes</p>
-                            <ArrowUpRight size={16} className="text-gray-300 group-hover:text-emerald-500"/>
-                        </div>
-                        <p className="text-3xl font-bold text-emerald-600">${financials.monthProfit.toLocaleString('es-US', {minimumFractionDigits: 0})}</p>
-                    </div>
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden">
-                        <div className="absolute right-0 top-0 w-20 h-20 bg-bakery-50 rounded-bl-full"></div>
-                        <p className="text-bakery-600 text-xs font-bold uppercase mb-2 relative z-10">Proyección Cierre</p>
-                        <p className="text-3xl font-bold text-gray-900 relative z-10">${financials.projectedRevenue.toLocaleString('es-US', {maximumFractionDigits: 0})}</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* --- Section 3: Professional Financial Metrics (Accounts Receivable & Assets) --- */}
-            <div>
-                <h3 className="text-lg font-bold text-gray-800 mb-4">Activos y Finanzas</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* Cuentas por Cobrar */}
-                    <div 
-                        onClick={() => setActiveTab('clients')}
-                        className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between group cursor-pointer hover:shadow-md hover:border-red-100 transition-all"
-                    >
-                        <div>
-                            <p className="text-gray-500 text-xs font-bold uppercase mb-1 group-hover:text-red-500 transition-colors">Cuentas por Cobrar</p>
-                            <h3 className="text-3xl font-bold text-red-600">${financials.totalDebt.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                            <p className="text-xs text-gray-400 mt-1">Capital pendiente de cobro</p>
-                        </div>
-                        <div className="p-3 bg-red-50 text-red-600 rounded-xl group-hover:scale-110 transition-transform">
-                            <Coins size={24} />
-                        </div>
-                    </div>
-                    
-                    {/* Valor de Inventario */}
-                    <div 
-                        onClick={() => setActiveTab('inventory')}
-                        className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between group cursor-pointer hover:shadow-md hover:border-blue-100 transition-all"
-                    >
-                        <div>
-                            <p className="text-gray-500 text-xs font-bold uppercase mb-1 group-hover:text-blue-500 transition-colors">Valor en Inventario</p>
-                            <h3 className="text-3xl font-bold text-blue-900">${financials.inventoryValue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                            <p className="text-xs text-gray-400 mt-1">Costo total mercancía en stock</p>
-                        </div>
-                        <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:scale-110 transition-transform">
-                            <Warehouse size={24} />
-                        </div>
-                    </div>
-
-                    {/* Stock Alerts */}
-                    <div 
-                        onClick={() => setActiveTab('inventory')}
-                        className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between group cursor-pointer hover:shadow-md transition-all"
-                    >
-                        <div>
-                            <p className="text-gray-500 text-xs font-bold uppercase mb-1">Alertas de Stock</p>
-                            <h3 className={`text-3xl font-bold ${financials.lowStockCount > 0 ? 'text-orange-600' : 'text-green-600'}`}>
-                                {financials.lowStockCount}
-                            </h3>
-                            <p className="text-xs text-gray-400 mt-1">Productos por agotarse</p>
-                        </div>
-                        <div className={`p-3 rounded-xl group-hover:scale-110 transition-transform ${financials.lowStockCount > 0 ? 'bg-orange-50 text-orange-600' : 'bg-green-50 text-green-600'}`}>
-                            <AlertCircle size={24} />
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* --- Section 4: Modern Chart --- */}
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200">
-                <div className="mb-8 flex justify-between items-center">
+                 {/* CREDIT SALES CARD (ACCOUNTS RECEIVABLE GENERATED TODAY) */}
+                 <div className="bg-blue-600 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group">
+                    <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform"><Truck size={80}/></div>
                     <div>
-                        <h3 className="text-lg font-bold text-gray-900">Tendencia de Ingresos</h3>
-                        <p className="text-sm text-gray-500">Comportamiento de ventas últimos 14 días</p>
+                        <div className="flex items-center gap-2 text-blue-200 mb-1">
+                            <Truck size={16} />
+                            <span className="text-xs font-bold uppercase tracking-wider">Despachos a Crédito (Hoy)</span>
+                        </div>
+                        <h3 className="text-4xl font-bold tracking-tight">${financials.todayCreditRevenue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                        <p className="text-sm text-blue-100 mt-1">Pendiente por Cobrar</p>
                     </div>
-                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-lg border border-gray-100">
-                        <span className="w-2 h-2 rounded-full bg-bakery-500"></span>
-                        <span className="text-xs font-bold text-gray-600">Ventas Diarias</span>
+                 </div>
+            </div>
+
+            {/* --- Section 2: Profit & Projections --- */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Realized Profit (Cash Based) */}
+                <div 
+                    onClick={() => setShowProfitDetail(true)}
+                    className="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white p-6 rounded-2xl shadow-sm border border-emerald-600 cursor-pointer hover:shadow-lg transition-all group relative overflow-hidden"
+                >
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform"><Wallet size={60}/></div>
+                    <div className="relative z-10">
+                        <div className="flex items-center gap-2 text-emerald-100 mb-2">
+                            <Wallet size={16} />
+                            <span className="text-xs font-bold uppercase tracking-wider">Ganancia Líquida (Hoy)</span>
+                        </div>
+                        <h3 className="text-3xl font-bold tracking-tight">${financials.todayCashProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                        
+                        <div className="mt-4 pt-4 border-t border-emerald-400/30 flex justify-between items-center text-xs">
+                             <span className="text-emerald-100">Disponible Real</span>
+                             <span className="bg-white/20 px-2 py-1 rounded text-[10px] font-bold">Ver Detalle</span>
+                        </div>
                     </div>
                 </div>
-                <div className="h-72 w-full">
-                    <ModernSplineChart sales={sales} days={14} />
+
+                {/* Unrealized Profit (Credit Based) */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden group">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-gray-500 text-xs font-bold uppercase mb-2">Ganancia Por Cobrar</p>
+                            <p className="text-3xl font-bold text-blue-600">${financials.todayCreditProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</p>
+                            <p className="text-xs text-gray-400 mt-1">Estimada en despachos de hoy</p>
+                        </div>
+                        <div className="p-3 bg-blue-50 text-blue-500 rounded-xl group-hover:scale-110 transition-transform">
+                            <TrendingUp size={24} />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Total Accounts Receivable */}
+                <div 
+                    onClick={() => setActiveTab('clients')}
+                    className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between group cursor-pointer hover:shadow-md hover:border-red-100 transition-all"
+                >
+                    <div>
+                        <p className="text-gray-500 text-xs font-bold uppercase mb-1 group-hover:text-red-500 transition-colors">Total Cuentas por Cobrar</p>
+                        <h3 className="text-3xl font-bold text-red-600">${financials.totalDebt.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                        <p className="text-xs text-gray-400 mt-1">Capital pendiente acumulado</p>
+                    </div>
+                    <div className="p-3 bg-red-50 text-red-600 rounded-xl group-hover:scale-110 transition-transform">
+                        <Coins size={24} />
+                    </div>
+                </div>
+            </div>
+
+            {/* --- Section 3: Inventory & Chart --- */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* Inventory Value */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+                            <Warehouse size={20} />
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-gray-900">Inventario</h3>
+                            <p className="text-xs text-gray-500">Valor al costo</p>
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <h3 className="text-3xl font-bold text-blue-900">${financials.inventoryValue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                        <div className="flex items-center gap-2 mt-2">
+                            <span className={`text-xs font-bold px-2 py-1 rounded-md ${financials.lowStockCount > 0 ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                                {financials.lowStockCount} alertas de stock
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Chart */}
+                <div className="lg:col-span-2 bg-white p-6 rounded-3xl shadow-sm border border-gray-200">
+                    <div className="mb-4 flex justify-between items-center">
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-900">Tendencia de Ingresos</h3>
+                            <p className="text-sm text-gray-500">Comportamiento de ventas últimos 14 días</p>
+                        </div>
+                        <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-lg border border-gray-100">
+                            <span className="w-2 h-2 rounded-full bg-bakery-500"></span>
+                            <span className="text-xs font-bold text-gray-600">Total Operaciones</span>
+                        </div>
+                    </div>
+                    <div className="h-40 w-full">
+                        <ModernSplineChart sales={sales} days={14} />
+                    </div>
                 </div>
             </div>
           </div>
@@ -541,7 +565,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                   </button>
                </div>
                
-               {/* Advanced CRM Component with Data Refresh Callback */}
                <ClientCRM 
                     clients={clients} 
                     sales={sales} 
@@ -553,7 +576,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
             </div>
         )}
 
-        {/* --- AUDIT LOGS TAB (NEW) --- */}
         {activeTab === 'logs' && (
             <div className="animate-in fade-in duration-500">
                 <div className="flex justify-between items-center mb-6">
@@ -593,7 +615,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                                         </td>
                                         <td className="px-6 py-4 text-sm">
                                             <span className={`px-2 py-1 rounded-md text-xs font-bold uppercase ${
-                                                log.action.includes('ELIMINAR') ? 'bg-red-100 text-red-700' :
+                                                log.action.includes('ELIMINAR') || log.action.includes('RESET') ? 'bg-red-100 text-red-700' :
                                                 log.action.includes('EDITAR') || log.action.includes('CONFIGURACIÓN') ? 'bg-orange-100 text-orange-700' :
                                                 'bg-blue-100 text-blue-700'
                                             }`}>
@@ -620,137 +642,155 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
 
         {activeTab === 'settings' && (
           <div className="max-w-4xl w-full animate-in fade-in duration-500 space-y-8 pb-10">
-            <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">Configuración General</h2>
-                <p className="text-gray-500">Personaliza la información de tu negocio y ajustes del sistema.</p>
-            </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Exchange Rate */}
-                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-                    <label className="block text-sm font-bold text-gray-700 mb-3">Tasa de Cambio (Bs/USD)</label>
-                    <div className="flex gap-4">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 className="font-bold text-lg text-gray-900">Datos del Negocio</h3>
+                        <p className="text-sm text-gray-500">Información visible en facturas y reportes.</p>
+                    </div>
+                    <div className="bg-blue-50 text-blue-600 p-2 rounded-lg">
+                        <Store size={24} />
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-2">Nombre del Negocio</label>
                         <input 
-                        type="number" 
-                        className="flex-1 p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-bakery-500 focus:border-bakery-500 outline-none transition-all font-mono text-lg bg-white"
-                        value={settings.exchangeRate}
-                        onChange={(e) => setSettings({...settings, exchangeRate: parseFloat(e.target.value)})}
+                            type="text" 
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-bakery-400 outline-none transition-all"
+                            value={settings.businessName}
+                            onChange={(e) => setSettings({...settings, businessName: e.target.value})}
                         />
-                        <button 
-                            onClick={handleUpdateSettings}
-                            className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200"
-                        >
-                        Actualizar
-                        </button>
                     </div>
-                    <p className="text-xs text-gray-400 mt-4">Esta tasa se usará para calcular los precios en Bolívares en el punto de venta y reportes.</p>
-                </div>
-
-                {/* Business Data */}
-                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 lg:row-span-2">
-                    <div className="flex items-center gap-3 mb-6">
-                        <div className="p-2 bg-bakery-100 text-bakery-700 rounded-lg">
-                            <Store size={20} />
-                        </div>
-                        <div>
-                            <h3 className="font-bold text-gray-900">Datos del Negocio</h3>
-                            <p className="text-xs text-gray-500">Información visible en facturas y recibos.</p>
-                        </div>
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-2">RIF / ID Legal</label>
+                        <input 
+                            type="text" 
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-bakery-400 outline-none transition-all"
+                            value={settings.rif}
+                            onChange={(e) => setSettings({...settings, rif: e.target.value})}
+                        />
                     </div>
-                    
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nombre Comercial</label>
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-bold text-gray-700 mb-2">Dirección Fiscal</label>
+                        <input 
+                            type="text" 
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-bakery-400 outline-none transition-all"
+                            value={settings.address}
+                            onChange={(e) => setSettings({...settings, address: e.target.value})}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-2">Teléfono Contacto</label>
+                        <input 
+                            type="text" 
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-bakery-400 outline-none transition-all"
+                            value={settings.phone}
+                            onChange={(e) => setSettings({...settings, phone: e.target.value})}
+                        />
+                    </div>
+                     <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-2">Tasa de Cambio (Bs/USD)</label>
+                        <div className="relative">
+                            <span className="absolute left-4 top-3.5 text-gray-400 font-bold">Bs</span>
                             <input 
-                                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-bakery-500 outline-none bg-white text-gray-900"
-                                value={settings.businessName}
-                                onChange={e => setSettings({...settings, businessName: e.target.value})}
-                                placeholder="Ej: Panadería El Trigal"
+                                type="number" 
+                                className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-3 focus:ring-2 focus:ring-bakery-400 outline-none transition-all font-mono font-bold text-lg"
+                                value={settings.exchangeRate}
+                                onChange={(e) => setSettings({...settings, exchangeRate: parseFloat(e.target.value)})}
                             />
                         </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">RIF / Identificación Fiscal</label>
-                            <input 
-                                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-bakery-500 outline-none bg-white text-gray-900"
-                                value={settings.rif}
-                                onChange={e => setSettings({...settings, rif: e.target.value})}
-                                placeholder="Ej: J-12345678-9"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Dirección</label>
-                            <input 
-                                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-bakery-500 outline-none bg-white text-gray-900"
-                                value={settings.address}
-                                onChange={e => setSettings({...settings, address: e.target.value})}
-                                placeholder="Ej: Calle Principal..."
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Teléfono</label>
-                            <input 
-                                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-bakery-500 outline-none bg-white text-gray-900"
-                                value={settings.phone}
-                                onChange={e => setSettings({...settings, phone: e.target.value})}
-                                placeholder="Ej: (0414) 123-4567"
-                            />
-                        </div>
-                        <button 
-                            onClick={handleUpdateSettings}
-                            className="w-full bg-gray-900 text-white py-3 rounded-xl font-bold hover:bg-gray-800 transition-colors mt-2"
-                        >
-                            Guardar Datos
-                        </button>
                     </div>
                 </div>
+                <div className="mt-6 flex justify-end">
+                     <button 
+                        onClick={handleUpdateSettings}
+                        className="bg-bakery-600 hover:bg-bakery-700 text-white px-6 py-3 rounded-xl font-bold shadow-md transition-all flex items-center gap-2"
+                     >
+                         <Save size={20} /> Guardar Cambios
+                     </button>
+                </div>
+            </div>
 
-                {/* BACKUP SECTION */}
-                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-                    <div className="flex items-center gap-3 mb-6">
-                        <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
-                            <Save size={20} />
-                        </div>
-                        <div>
-                            <h3 className="font-bold text-gray-900">Respaldo y Seguridad</h3>
-                            <p className="text-xs text-gray-500">Guarda tus datos para no perderlos.</p>
-                        </div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                 <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 className="font-bold text-lg text-gray-900">Copia de Seguridad</h3>
+                        <p className="text-sm text-gray-500">Respalda o restaura la base de datos completa.</p>
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <button 
-                            onClick={handleDownloadBackup}
-                            className="flex flex-col items-center justify-center p-6 border-2 border-gray-100 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all group"
-                        >
-                            <Save size={32} className="text-gray-400 group-hover:text-blue-600 mb-2" />
-                            <span className="font-bold text-gray-700">Descargar Respaldo</span>
-                            <span className="text-xs text-gray-400 text-center mt-1">Guardar archivo .json</span>
-                        </button>
-
-                        <button 
-                            onClick={() => fileInputRef.current?.click()}
-                            className="flex flex-col items-center justify-center p-6 border-2 border-gray-100 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all group"
-                        >
-                            <Upload size={32} className="text-gray-400 group-hover:text-green-600 mb-2" />
-                            <span className="font-bold text-gray-700">Restaurar Datos</span>
-                            <span className="text-xs text-gray-400 text-center mt-1">Cargar archivo guardado</span>
-                            <input 
-                                type="file" 
-                                ref={fileInputRef} 
-                                onChange={handleRestoreBackup} 
-                                accept=".json" 
-                                className="hidden"
-                            />
-                        </button>
+                    <div className="bg-gray-100 text-gray-600 p-2 rounded-lg">
+                        <Upload size={24} />
                     </div>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-4">
+                    <button 
+                        onClick={handleDownloadBackup}
+                        className="flex-1 bg-gray-50 border-2 border-gray-200 border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-3 hover:bg-gray-100 transition-colors group"
+                    >
+                        <div className="p-3 bg-white rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                            <Save size={24} className="text-gray-600" />
+                        </div>
+                        <div className="text-center">
+                            <h4 className="font-bold text-gray-800">Descargar Respaldo</h4>
+                            <p className="text-xs text-gray-500">Guardar archivo .JSON localmente</p>
+                        </div>
+                    </button>
+
+                    <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex-1 bg-gray-50 border-2 border-gray-200 border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-3 hover:bg-gray-100 transition-colors group"
+                    >
+                        <div className="p-3 bg-white rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                            <Upload size={24} className="text-gray-600" />
+                        </div>
+                         <div className="text-center">
+                            <h4 className="font-bold text-gray-800">Restaurar Datos</h4>
+                            <p className="text-xs text-gray-500">Cargar archivo .JSON previo</p>
+                        </div>
+                        <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            className="hidden" 
+                            accept=".json" 
+                            onChange={handleRestoreBackup}
+                        />
+                    </button>
+                </div>
+            </div>
+
+            <div className="bg-red-50 p-8 rounded-2xl shadow-sm border border-red-100">
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-red-100 text-red-600 rounded-lg">
+                        <AlertTriangle size={20} />
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-red-900">Zona de Peligro</h3>
+                        <p className="text-xs text-red-500">Acciones destructivas e irreversibles.</p>
+                    </div>
+                </div>
+                <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-red-200">
+                    <div>
+                        <p className="font-bold text-red-800">Borrar Historial de Ventas</p>
+                        <p className="text-xs text-gray-500 mt-1 max-w-md">
+                            Esta acción eliminará <b>todas</b> las ventas registradas y reiniciará la deuda de todos los clientes a $0.
+                        </p>
+                    </div>
+                    <button 
+                        onClick={handleResetSales}
+                        disabled={isResetting}
+                        className="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-bold text-sm shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                        {isResetting && <Loader2 size={16} className="animate-spin" />}
+                        {isResetting ? (resetStatus || 'Borrando...') : 'Borrar Todo'}
+                    </button>
                 </div>
             </div>
           </div>
         )}
       </main>
 
-      {/* --- FLOATING CHAT ASSISTANT (UI ONLY) --- */}
+      {/* --- FLOATING CHAT --- */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-         {/* Chat Window */}
          {isChatOpen && (
              <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-80 sm:w-96 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-300 origin-bottom-right h-[400px]">
                  <div className="bg-bakery-600 text-white p-4 flex justify-between items-center">
@@ -763,7 +803,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                  <div className="flex-1 bg-gray-50 p-4 overflow-y-auto">
                      <div className="flex gap-2 items-start mb-4">
                          <div className="bg-bakery-100 p-2 rounded-lg rounded-tl-none">
-                             <p className="text-sm text-gray-700">Hola, soy tu asistente virtual. ¿Qué te gustaría hacer hoy? Puedes pedirme agregar ventas o consultar productos.</p>
+                             <p className="text-sm text-gray-700">Hola, soy tu asistente virtual.</p>
                          </div>
                      </div>
                  </div>
@@ -782,7 +822,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
              </div>
          )}
          
-         {/* Floating Button */}
          <button 
             onClick={() => setIsChatOpen(!isChatOpen)}
             className="bg-bakery-600 text-white p-4 rounded-full shadow-lg hover:bg-bakery-700 hover:scale-105 transition-all flex items-center justify-center"
@@ -791,22 +830,16 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
          </button>
       </div>
 
-      {/* PROFIT DETAIL MODAL */}
-      {/* ... (Kept existing code) ... */}
-      {/* Edit Product Modal */}
-      {/* ... (Kept existing code) ... */}
-      {/* Edit Client Modal */}
-      {/* ... (Kept existing code) ... */}
-      {/* ... (Existing Edit Modals) ... */}
+      {/* PROFIT DETAIL MODAL (UPDATED to show Liquid Profit only) */}
       {showProfitDetail && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
                 <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
                     <div>
                         <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                            <Wallet className="text-emerald-600" /> Reporte de Rentabilidad Diaria
+                            <Wallet className="text-emerald-600" /> Ganancia Líquida (Contado)
                         </h2>
-                        <p className="text-sm text-gray-500">Desglose de ganancias por producto vendido hoy.</p>
+                        <p className="text-sm text-gray-500">Solo ventas de mostrador cobradas en caja.</p>
                     </div>
                     <button onClick={() => setShowProfitDetail(false)} className="p-2 bg-gray-200 rounded-full hover:bg-gray-300">
                         <X size={20} />
@@ -818,18 +851,18 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                         <thead className="bg-white sticky top-0 shadow-sm z-10">
                             <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-100">
                                 <th className="px-6 py-4 font-bold bg-white">Producto</th>
-                                <th className="px-6 py-4 font-bold text-center bg-white">Cantidad</th>
-                                <th className="px-6 py-4 font-bold text-center bg-white">Costo Unit. (Ref)</th>
-                                <th className="px-6 py-4 font-bold text-center bg-white text-emerald-600">Ganancia Unit.</th>
+                                <th className="px-6 py-4 font-bold text-center bg-white">Cant (POS)</th>
+                                <th className="px-6 py-4 font-bold text-center bg-white">Costo Unit.</th>
+                                <th className="px-6 py-4 font-bold text-center bg-white text-emerald-600">Margen</th>
                                 <th className="px-6 py-4 font-bold text-right bg-white">Venta Total</th>
-                                <th className="px-6 py-4 font-bold text-right bg-white text-emerald-700">Ganancia Neta</th>
+                                <th className="px-6 py-4 font-bold text-right bg-white text-emerald-700">Ganancia Real</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                             {profitBreakdown.length === 0 ? (
                                 <tr>
                                     <td colSpan={6} className="text-center py-12 text-gray-400">
-                                        No hay ventas registradas hoy.
+                                        No hay ventas de contado registradas hoy.
                                     </td>
                                 </tr>
                             ) : (
@@ -860,12 +893,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
 
                 <div className="p-6 bg-gray-900 text-white rounded-b-2xl shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] flex justify-between items-center z-20">
                     <div>
-                        <p className="text-gray-400 text-xs uppercase font-bold tracking-widest">Resumen del Día</p>
+                        <p className="text-gray-400 text-xs uppercase font-bold tracking-widest">Total Líquido</p>
                         <p className="text-sm opacity-80">{new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
                     </div>
                     <div className="text-right">
-                        <p className="text-3xl font-bold text-emerald-400">${financials.todayProfit.toFixed(2)}</p>
-                        <p className="text-xs text-emerald-200">Ganancia Neta Total</p>
+                        <p className="text-3xl font-bold text-emerald-400">${financials.todayCashProfit.toFixed(2)}</p>
+                        <p className="text-xs text-emerald-200">Ganancia en Mano</p>
                     </div>
                 </div>
             </div>
@@ -874,56 +907,103 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
 
       {/* Edit Product Modal */}
       {editingProduct && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-8 rounded-2xl w-full max-w-lg shadow-2xl animate-in zoom-in duration-200">
-            <h3 className="text-xl font-bold mb-6 text-gray-900">
-              {editingProduct.id ? 'Editar Producto' : 'Crear Producto'}
-            </h3>
-            <div className="grid grid-cols-2 gap-5">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 animate-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-gray-900">{editingProduct.id.includes('-') ? 'Editar Producto' : 'Nuevo Producto'}</h3>
+                <button onClick={() => setEditingProduct(null)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">Nombre</label>
-                <input className="w-full border border-gray-300 p-3 rounded-xl focus:ring-2 focus:ring-bakery-400 outline-none bg-white text-gray-900" value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">Costo ($)</label>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Nombre</label>
                 <input 
-                    type="number" 
-                    className="w-full border border-gray-300 p-3 rounded-xl bg-white text-gray-900" 
-                    value={editingProduct.cost} 
-                    onChange={e => setEditingProduct({...editingProduct, cost: e.target.value === '' ? ('' as any) : parseFloat(e.target.value)})} 
+                    type="text" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none"
+                    value={editingProduct.name}
+                    onChange={e => setEditingProduct({...editingProduct, name: e.target.value})}
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">Stock Actual</label>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Precio Detal ($)</label>
                 <input 
                     type="number" 
-                    className="w-full border border-gray-300 p-3 rounded-xl bg-white text-gray-900" 
-                    value={editingProduct.stock} 
-                    onChange={e => setEditingProduct({...editingProduct, stock: e.target.value === '' ? ('' as any) : parseFloat(e.target.value)})} 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none font-bold"
+                    value={editingProduct.priceRetail}
+                    onChange={e => setEditingProduct({...editingProduct, priceRetail: parseFloat(e.target.value)})}
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-green-600 uppercase tracking-wide mb-1 block">Precio Detal ($)</label>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Precio Mayor ($)</label>
                 <input 
                     type="number" 
-                    className="w-full border-2 border-green-100 p-3 rounded-xl focus:border-green-500 outline-none bg-white text-gray-900" 
-                    value={editingProduct.priceRetail} 
-                    onChange={e => setEditingProduct({...editingProduct, priceRetail: e.target.value === '' ? ('' as any) : parseFloat(e.target.value)})} 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none font-bold"
+                    value={editingProduct.priceWholesale}
+                    onChange={e => setEditingProduct({...editingProduct, priceWholesale: parseFloat(e.target.value)})}
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-1 block">Precio Mayor ($)</label>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Costo ($)</label>
                 <input 
                     type="number" 
-                    className="w-full border-2 border-blue-100 p-3 rounded-xl focus:border-blue-500 outline-none bg-white text-gray-900" 
-                    value={editingProduct.priceWholesale} 
-                    onChange={e => setEditingProduct({...editingProduct, priceWholesale: e.target.value === '' ? ('' as any) : parseFloat(e.target.value)})} 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none"
+                    value={editingProduct.cost}
+                    onChange={e => setEditingProduct({...editingProduct, cost: parseFloat(e.target.value)})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Stock Actual</label>
+                <input 
+                    type="number" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none"
+                    value={editingProduct.stock}
+                    onChange={e => setEditingProduct({...editingProduct, stock: parseInt(e.target.value)})}
+                />
+              </div>
+              <div className="col-span-2">
+                 <label className="block text-sm font-bold text-gray-700 mb-1">Categoría</label>
+                 <select 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none"
+                    value={editingProduct.category}
+                    onChange={e => setEditingProduct({...editingProduct, category: e.target.value})}
+                 >
+                     <option value="Panadería Salada">Panadería Salada</option>
+                     <option value="Panadería Dulce">Panadería Dulce</option>
+                     <option value="Repostería">Repostería</option>
+                     <option value="General">General</option>
+                 </select>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-bold text-gray-700 mb-1">URL Imagen (Opcional)</label>
+                <input 
+                    type="text" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none text-xs"
+                    value={editingProduct.image || ''}
+                    onChange={e => setEditingProduct({...editingProduct, image: e.target.value})}
+                    placeholder="https://..."
                 />
               </div>
             </div>
-            <div className="mt-8 flex justify-end gap-3">
-              <button onClick={() => setEditingProduct(null)} className="px-5 py-3 text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors">Cancelar</button>
-              <button onClick={() => handleSaveProduct(editingProduct)} className="px-5 py-3 bg-bakery-600 text-white rounded-xl font-bold hover:bg-bakery-700 transition-colors shadow-lg shadow-orange-200">Guardar Cambios</button>
+            <div className="mt-6 flex justify-end gap-3">
+                {editingProduct.id.includes('-') && (
+                    <button 
+                        onClick={async () => {
+                            if(confirm('¿Borrar producto permanentemente?')) {
+                                await db.deleteProduct(editingProduct.id);
+                                setEditingProduct(null);
+                                loadData();
+                            }
+                        }}
+                        className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg font-bold flex items-center gap-2"
+                    >
+                        <Trash2 size={18}/> Eliminar
+                    </button>
+                )}
+                <button 
+                    onClick={() => handleSaveProduct(editingProduct)}
+                    className="px-6 py-2 bg-gray-900 text-white rounded-lg font-bold hover:bg-gray-800 shadow-md"
+                >
+                    Guardar
+                </button>
             </div>
           </div>
         </div>
@@ -931,44 +1011,57 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
 
       {/* Edit Client Modal */}
       {editingClient && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-8 rounded-2xl w-full max-w-lg shadow-2xl animate-in zoom-in duration-200">
-            <h3 className="text-xl font-bold mb-6 text-gray-900">
-               {editingClient.id ? 'Editar Cliente' : 'Nuevo Cliente'}
-            </h3>
+         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 animate-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-gray-900">{editingClient.id.includes('_') ? 'Editar Cliente' : 'Nuevo Cliente'}</h3>
+                <button onClick={() => setEditingClient(null)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+            </div>
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">Nombre del Negocio</label>
-                <input className="w-full border border-gray-300 p-3 rounded-xl focus:ring-2 focus:ring-bakery-400 outline-none bg-white text-gray-900" value={editingClient.businessName} onChange={e => setEditingClient({...editingClient, businessName: e.target.value})} />
+                <label className="block text-sm font-bold text-gray-700 mb-1">Nombre del Negocio</label>
+                <input 
+                    type="text" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none"
+                    value={editingClient.businessName}
+                    onChange={e => setEditingClient({...editingClient, businessName: e.target.value})}
+                />
               </div>
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">Persona de Contacto</label>
-                <input className="w-full border border-gray-300 p-3 rounded-xl bg-white text-gray-900" value={editingClient.name} onChange={e => setEditingClient({...editingClient, name: e.target.value})} />
+                <label className="block text-sm font-bold text-gray-700 mb-1">Nombre Contacto</label>
+                <input 
+                    type="text" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none"
+                    value={editingClient.name}
+                    onChange={e => setEditingClient({...editingClient, name: e.target.value})}
+                />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">Deuda Inicial ($)</label>
-                  <input 
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Límite de Crédito ($)</label>
+                <input 
                     type="number" 
-                    className="w-full border border-gray-300 p-3 rounded-xl bg-white text-gray-900" 
-                    value={editingClient.debt} 
-                    onChange={e => setEditingClient({...editingClient, debt: e.target.value === '' ? ('' as any) : parseFloat(e.target.value)})} 
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">Límite Crédito ($)</label>
-                  <input 
-                    type="number" 
-                    className="w-full border border-gray-300 p-3 rounded-xl bg-white text-gray-900" 
-                    value={editingClient.creditLimit} 
-                    onChange={e => setEditingClient({...editingClient, creditLimit: e.target.value === '' ? ('' as any) : parseFloat(e.target.value)})} 
-                  />
-                </div>
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none font-bold"
+                    value={editingClient.creditLimit}
+                    onChange={e => setEditingClient({...editingClient, creditLimit: parseFloat(e.target.value)})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Dirección</label>
+                <input 
+                    type="text" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-bakery-400 outline-none"
+                    value={editingClient.address}
+                    onChange={e => setEditingClient({...editingClient, address: e.target.value})}
+                />
               </div>
             </div>
-            <div className="mt-8 flex justify-end gap-3">
-              <button onClick={() => setEditingClient(null)} className="px-5 py-3 text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors">Cancelar</button>
-              <button onClick={() => handleSaveClient(editingClient)} className="px-5 py-3 bg-bakery-600 text-white rounded-xl font-bold hover:bg-bakery-700 transition-colors shadow-lg shadow-orange-200">Guardar Cambios</button>
+            <div className="mt-6 flex justify-end">
+                <button 
+                    onClick={() => handleSaveClient(editingClient)}
+                    className="px-6 py-2 bg-gray-900 text-white rounded-lg font-bold hover:bg-gray-800 shadow-md"
+                >
+                    Guardar Cliente
+                </button>
             </div>
           </div>
         </div>
@@ -977,435 +1070,276 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   );
 };
 
-// ... (SimPanel and Chart components remain the same) ...
-const SimulationPanel: React.FC<{ products: Product[] }> = ({ products }) => {
-    // Local State for Simulation
-    const [simProducts, setSimProducts] = useState<SimProduct[]>([]);
-    const [expenses, setExpenses] = useState<SimExpense[]>([]);
-    const [newExpenseName, setNewExpenseName] = useState('');
-    const [newExpenseAmount, setNewExpenseAmount] = useState('');
-    const [newExpenseFreq, setNewExpenseFreq] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
-    const [workingDays, setWorkingDays] = useState<number>(26); // Default: Mon-Sat
+const ModernSplineChart: React.FC<{ sales: Sale[]; days: number }> = ({ sales, days }) => {
+  const data = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const result = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const daySales = sales.filter(
+        (s) => new Date(s.date).toDateString() === d.toDateString()
+      );
+      const total = daySales.reduce((acc, curr) => acc + curr.totalAmount, 0);
+      result.push({ date: d, value: total });
+    }
+    return result;
+  }, [sales, days]);
 
-    // Initialize Sim Products from Real Products
-    useEffect(() => {
-        setSimProducts(products.map(p => ({...p, simDailyQty: 0})));
-    }, [products]);
-
-    // Update simulation value
-    const updateSimProduct = (id: string, field: keyof SimProduct, value: any) => {
-        setSimProducts(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
-    };
-
-    // Add Expense
-    const addExpense = () => {
-        if (!newExpenseName || !newExpenseAmount) return;
-        const expense: SimExpense = {
-            id: crypto.randomUUID(),
-            name: newExpenseName,
-            amount: parseFloat(newExpenseAmount),
-            frequency: newExpenseFreq
-        };
-        setExpenses([...expenses, expense]);
-        setNewExpenseName('');
-        setNewExpenseAmount('');
-    };
-
-    const removeExpense = (id: string) => {
-        setExpenses(expenses.filter(e => e.id !== id));
-    };
-
-    // --- Calculations ---
-    const calculateTotals = () => {
-        // 1. Product Revenue & Cost (Daily Operational)
-        let dailyRevenue = 0;
-        let dailyCOGS = 0; // Cost of Goods Sold
-
-        simProducts.forEach(p => {
-            const qty = p.simDailyQty || 0;
-            if (qty > 0) {
-                dailyRevenue += p.priceRetail * qty;
-                dailyCOGS += p.cost * qty;
-            }
-        });
-
-        const dailyGrossProfit = dailyRevenue - dailyCOGS;
-
-        // 2. Expenses (TOTAL MONTHLY NORMALIZED)
-        let totalMonthlyExpenses = 0;
-        
-        expenses.forEach(e => {
-            if (e.frequency === 'daily') totalMonthlyExpenses += (e.amount * workingDays);
-            else if (e.frequency === 'weekly') totalMonthlyExpenses += (e.amount * 4.33); 
-            else if (e.frequency === 'monthly') totalMonthlyExpenses += e.amount;
-        });
-
-        // 3. Monthly Projections
-        const monthlyRevenue = dailyRevenue * workingDays;
-        const monthlyCOGS = dailyCOGS * workingDays;
-        const monthlyGrossProfit = monthlyRevenue - monthlyCOGS;
-        const monthlyNetProfit = monthlyGrossProfit - totalMonthlyExpenses;
-
-        return {
-            dailyRevenue,
-            dailyCOGS,
-            dailyGrossProfit, // Without expenses
-            
-            // Monthly Totals
-            monthlyRevenue,
-            monthlyCOGS,
-            totalMonthlyExpenses,
-            monthlyNetProfit,
-
-            margin: monthlyRevenue > 0 ? (monthlyNetProfit / monthlyRevenue) * 100 : 0
-        };
-    };
-
-    const totals = calculateTotals();
-
+  if (data.every((d) => d.value === 0)) {
     return (
-        <div className="flex flex-col xl:flex-row gap-6 h-full animate-in fade-in duration-500">
-            {/* Left Column: Configuration */}
-            <div className="w-full xl:w-2/3 flex flex-col gap-6">
-                
-                {/* 0. Global Settings */}
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
-                    <div>
-                        <h3 className="font-bold text-gray-900 flex items-center gap-2"><CalendarDays size={18}/> Días Laborables</h3>
-                        <p className="text-xs text-gray-500">¿Cuántos días abres al mes?</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                         <div className="flex bg-gray-100 p-1 rounded-lg">
-                             <button onClick={() => setWorkingDays(22)} className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${workingDays === 22 ? 'bg-white shadow text-bakery-600' : 'text-gray-500 hover:text-gray-900'}`}>L-V (22)</button>
-                             <button onClick={() => setWorkingDays(26)} className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${workingDays === 26 ? 'bg-white shadow text-bakery-600' : 'text-gray-500 hover:text-gray-900'}`}>L-S (26)</button>
-                             <button onClick={() => setWorkingDays(30)} className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${workingDays === 30 ? 'bg-white shadow text-bakery-600' : 'text-gray-500 hover:text-gray-900'}`}>30 Días</button>
-                         </div>
-                         <div className="relative w-20">
-                             <input 
-                                type="number" 
-                                className="w-full p-2 border border-gray-300 rounded-lg text-center font-bold focus:border-bakery-500 outline-none bg-white text-gray-900"
-                                value={workingDays}
-                                onChange={e => setWorkingDays(Math.max(1, Math.min(31, parseInt(e.target.value) || 0)))}
-                             />
-                             <span className="absolute -bottom-4 left-0 w-full text-[9px] text-center text-gray-400">Personalizado</span>
-                         </div>
-                    </div>
-                </div>
-
-                {/* 1. Products Config */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col max-h-[500px]">
-                    <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-                        <div>
-                             <h3 className="font-bold text-gray-900 flex items-center gap-2"><Package size={18}/> Estimación de Ventas</h3>
-                             <p className="text-xs text-gray-500">Ajusta el volumen diario estimado para calcular ingresos.</p>
-                        </div>
-                    </div>
-                    <div className="overflow-y-auto flex-1 p-0">
-                        <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-gray-500 uppercase bg-white sticky top-0 border-b border-gray-100 z-10">
-                                <tr>
-                                    <th className="px-5 py-3 bg-white">Producto</th>
-                                    <th className="px-5 py-3 bg-white w-24">Costo ($)</th>
-                                    <th className="px-5 py-3 bg-white w-24">Precio ($)</th>
-                                    <th className="px-5 py-3 bg-white text-center w-32">Venta Diaria (Und)</th>
-                                    <th className="px-5 py-3 bg-white text-right">Ganancia Bruta</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {simProducts.map(p => {
-                                    const profit = (p.priceRetail - p.cost) * (p.simDailyQty || 0);
-                                    return (
-                                        <tr key={p.id} className={p.simDailyQty > 0 ? 'bg-orange-50/30' : ''}>
-                                            <td className="px-5 py-3 font-medium text-gray-800">{p.name}</td>
-                                            <td className="px-5 py-3">
-                                                <input 
-                                                    type="number" 
-                                                    className="w-20 p-1 border border-gray-300 rounded text-xs bg-white text-gray-900 focus:ring-1 focus:ring-bakery-400 outline-none transition-all"
-                                                    value={p.cost}
-                                                    onChange={e => updateSimProduct(p.id, 'cost', e.target.value === '' ? ('' as any) : parseFloat(e.target.value))}
-                                                />
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                <input 
-                                                    type="number" 
-                                                    className="w-20 p-1 border border-gray-300 rounded text-xs bg-white text-gray-900 focus:ring-1 focus:ring-bakery-400 outline-none transition-all"
-                                                    value={p.priceRetail}
-                                                    onChange={e => updateSimProduct(p.id, 'priceRetail', e.target.value === '' ? ('' as any) : parseFloat(e.target.value))}
-                                                />
-                                            </td>
-                                            <td className="px-5 py-3 text-center">
-                                                <input 
-                                                    type="number" 
-                                                    className={`w-20 p-1.5 border rounded text-center font-bold outline-none focus:ring-2 focus:ring-bakery-400 transition-all ${p.simDailyQty > 0 ? 'border-bakery-400 bg-white' : 'bg-gray-50 border-gray-300'}`}
-                                                    value={p.simDailyQty}
-                                                    onChange={e => updateSimProduct(p.id, 'simDailyQty', e.target.value === '' ? ('' as any) : parseFloat(e.target.value))}
-                                                />
-                                            </td>
-                                            <td className="px-5 py-3 text-right font-bold text-bakery-700">
-                                                ${profit.toFixed(2)}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                {/* 2. Expenses Config */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="p-5 border-b border-gray-100 bg-gray-50">
-                        <h3 className="font-bold text-gray-900 flex items-center gap-2"><DollarSign size={18}/> Gastos Operativos</h3>
-                        <p className="text-xs text-gray-500">Agrega gastos fijos. <span className="font-bold">Nota:</span> Los gastos diarios se multiplicarán por {workingDays} días.</p>
-                    </div>
-                    <div className="p-5">
-                        <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                            <input 
-                                type="text" 
-                                placeholder="Nombre (ej. Alquiler, Luz)" 
-                                className="flex-1 p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-bakery-500 bg-white text-gray-900"
-                                value={newExpenseName}
-                                onChange={e => setNewExpenseName(e.target.value)}
-                            />
-                            <div className="relative">
-                                <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
-                                <input 
-                                    type="number" 
-                                    placeholder="0.00" 
-                                    className="w-32 p-2 pl-6 border border-gray-300 rounded-lg text-sm outline-none focus:border-bakery-500 bg-white text-gray-900"
-                                    value={newExpenseAmount}
-                                    onChange={e => setNewExpenseAmount(e.target.value)}
-                                />
-                            </div>
-                            <select 
-                                className="p-2 border border-gray-300 rounded-lg text-sm outline-none bg-white text-gray-900"
-                                value={newExpenseFreq}
-                                onChange={(e) => setNewExpenseFreq(e.target.value as any)}
-                            >
-                                <option value="daily">Diario</option>
-                                <option value="weekly">Semanal</option>
-                                <option value="monthly">Mensual</option>
-                            </select>
-                            <button 
-                                onClick={addExpense}
-                                className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-800 transition-colors"
-                            >
-                                Agregar
-                            </button>
-                        </div>
-
-                        {expenses.length === 0 ? (
-                            <p className="text-center text-gray-400 text-sm py-4 border-2 border-dashed border-gray-100 rounded-xl">No hay gastos registrados aún.</p>
-                        ) : (
-                            <div className="flex flex-wrap gap-2">
-                                {expenses.map(exp => (
-                                    <div key={exp.id} className="bg-red-50 text-red-700 border border-red-100 px-3 py-2 rounded-lg flex items-center gap-3 text-sm">
-                                        <div>
-                                            <span className="font-bold block">{exp.name}</span>
-                                            <span className="text-xs opacity-80">${exp.amount} / {exp.frequency === 'daily' ? 'día' : exp.frequency === 'weekly' ? 'sem' : 'mes'}</span>
-                                        </div>
-                                        <button onClick={() => removeExpense(exp.id)} className="text-red-400 hover:text-red-700"><Trash2 size={14}/></button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* Right Column: Results Dashboard */}
-            <div className="w-full xl:w-1/3">
-                <div className="bg-gray-900 text-white rounded-3xl p-6 shadow-2xl sticky top-6">
-                    <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
-                        <Calculator className="text-bakery-400"/> Resultados
-                    </h2>
-
-                    {/* Daily Operational Card (simplified) */}
-                    <div className="bg-white/10 rounded-2xl p-4 mb-4 border border-white/5">
-                        <h4 className="text-xs font-bold text-bakery-400 uppercase tracking-widest mb-3">Día Operativo Típico</h4>
-                        <div className="space-y-2 text-sm">
-                            <div className="flex justify-between text-gray-300">
-                                <span>Ingreso Bruto</span>
-                                <span className="text-white font-medium">${totals.dailyRevenue.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between text-gray-300">
-                                <span>Ganancia Bruta</span>
-                                <span className="text-emerald-300 font-medium">+${totals.dailyGrossProfit.toFixed(2)}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Monthly Card (The Real Deal) */}
-                    <div className="bg-gradient-to-br from-bakery-600 to-bakery-800 rounded-2xl p-5 mb-6 shadow-lg">
-                        <div className="flex justify-between items-start mb-4 border-b border-white/20 pb-2">
-                             <h4 className="text-xs font-bold text-bakery-200 uppercase tracking-widest">Proyección Mensual</h4>
-                             <div className="flex items-center gap-1 text-xs bg-black/20 px-2 py-0.5 rounded">
-                                <CalendarClock size={12}/> {workingDays} Días
-                             </div>
-                        </div>
-                        
-                        <div className="space-y-2 text-sm mb-4">
-                            <div className="flex justify-between text-bakery-100">
-                                <span>Ventas Totales</span>
-                                <span>${totals.monthlyRevenue.toFixed(0)}</span>
-                            </div>
-                             <div className="flex justify-between text-bakery-100">
-                                <span>Costos Producción</span>
-                                <span>-${totals.monthlyCOGS.toFixed(0)}</span>
-                            </div>
-                            <div className="flex justify-between text-bakery-100 font-bold">
-                                <span>Gastos Fijos/Var.</span>
-                                <span>-${totals.totalMonthlyExpenses.toFixed(0)}</span>
-                            </div>
-                        </div>
-
-                        <div className="text-center py-2 bg-black/20 rounded-xl">
-                            <p className="text-xs text-bakery-200 mb-1">Utilidad Neta Real</p>
-                            <p className={`text-4xl font-bold ${totals.monthlyNetProfit >= 0 ? 'text-white' : 'text-red-300'}`}>
-                                ${totals.monthlyNetProfit.toLocaleString('es-US', {maximumFractionDigits: 0})}
-                            </p>
-                        </div>
-                         <div className="mt-2 text-xs text-center text-bakery-200">
-                             Margen Neto Real: {totals.margin.toFixed(1)}%
-                        </div>
-                    </div>
-
-                    {/* Insights */}
-                    <div className="space-y-2">
-                        {totals.monthlyNetProfit < 0 && (
-                            <div className="flex items-start gap-2 bg-red-500/20 p-3 rounded-lg text-xs text-red-200 border border-red-500/30">
-                                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-                                <p>Actualmente estás operando con pérdidas. Necesitas aumentar el volumen de ventas o reducir gastos.</p>
-                            </div>
-                        )}
-                        {totals.monthlyNetProfit > 0 && totals.margin < 15 && (
-                            <div className="flex items-start gap-2 bg-yellow-500/20 p-3 rounded-lg text-xs text-yellow-200 border border-yellow-500/30">
-                                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-                                <p>Tu margen es bajo ({totals.margin.toFixed(1)}%). Revisa los costos de producción.</p>
-                            </div>
-                        )}
-                         {totals.monthlyNetProfit > 0 && totals.margin >= 15 && (
-                            <div className="flex items-start gap-2 bg-emerald-500/20 p-3 rounded-lg text-xs text-emerald-200 border border-emerald-500/30">
-                                <TrendingUp size={16} className="flex-shrink-0 mt-0.5" />
-                                <p>¡Buen margen de ganancia! Tu modelo de negocio parece saludable.</p>
-                            </div>
-                        )}
-                    </div>
-
-                </div>
-            </div>
-        </div>
+      <div className="h-full w-full flex items-center justify-center text-gray-400 text-sm">
+        No hay datos suficientes para graficar.
+      </div>
     );
-};
+  }
 
-// --- Modern Spline Chart Component (SVG Based) ---
-const ModernSplineChart: React.FC<{ sales: Sale[], days: number }> = ({ sales, days }) => {
-  const dataPoints = Array.from({ length: days }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (days - 1 - i));
-    const dayStr = d.toDateString();
-    const total = sales
-      .filter(s => new Date(s.date).toDateString() === dayStr)
-      .reduce((acc, curr) => acc + curr.totalAmount, 0);
-    return { date: d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' }), value: total };
-  });
+  const maxVal = Math.max(...data.map((d) => d.value), 10);
+  const getX = (index: number) => (index / (data.length - 1)) * 100;
+  const getY = (val: number) => 100 - (val / maxVal) * 80 - 10; // Reserve padding
 
-  const maxVal = Math.max(...dataPoints.map(d => d.value), 50) * 1.2; 
-  
-  // Calculate Points
-  const getX = (index: number) => (index / (days - 1)) * 100; 
-  const getY = (val: number) => 100 - (val / maxVal) * 100;   
-
-  // Cubic Bezier Path Generation
-  let pathD = `M0,${getY(dataPoints[0].value)}`;
-  for (let i = 0; i < dataPoints.length - 1; i++) {
+  let pathD = `M0,${getY(data[0].value)}`;
+  for (let i = 0; i < data.length - 1; i++) {
     const x0 = getX(i);
-    const y0 = getY(dataPoints[i].value);
+    const y0 = getY(data[i].value);
     const x1 = getX(i + 1);
-    const y1 = getY(dataPoints[i + 1].value);
-    
-    // Control points (smoothing)
+    const y1 = getY(data[i + 1].value);
     const cp1x = x0 + (x1 - x0) * 0.5;
-    const cp1y = y0;
     const cp2x = x1 - (x1 - x0) * 0.5;
-    const cp2y = y1;
-    
-    pathD += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${x1},${y1}`;
+    pathD += ` C${cp1x},${y0} ${cp2x},${y1} ${x1},${y1}`;
   }
 
   const fillPath = `${pathD} L100,100 L0,100 Z`;
 
   return (
-    <div className="w-full h-full relative group/chart">
-      {/* Background Grid Lines */}
-      <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-10">
-         {[0, 1, 2, 3, 4].map(i => <div key={i} className="border-b border-gray-900 w-full h-0"></div>)}
-      </div>
-
+    <div className="w-full h-full relative overflow-visible group">
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
         <defs>
           <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#eab308" stopOpacity="0.4" />
-            <stop offset="100%" stopColor="#eab308" stopOpacity="0" />
+            <stop offset="0%" stopColor="#f97316" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#f97316" stopOpacity="0" />
           </linearGradient>
-          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="2" result="coloredBlur" />
-            <feMerge>
-                <feMergeNode in="coloredBlur" />
-                <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
         </defs>
-        
-        {/* Fill Area */}
         <path d={fillPath} fill="url(#chartGradient)" />
-        
-        {/* Line */}
-        <path d={pathD} fill="none" stroke="#eab308" strokeWidth="1" strokeLinecap="round" filter="url(#glow)" />
-        
-        {/* Interactive Points */}
-        {dataPoints.map((pt, i) => (
-          <g key={i} className="group/point">
-             {/* Invisible Hit Area for easier hovering */}
-             <rect x={getX(i) - 5} y="0" width="10" height="100" fill="transparent" />
-             
-             {/* Point Circle */}
-             <circle 
-                cx={getX(i)} 
-                cy={getY(pt.value)} 
-                r="1.5" 
-                fill="#fff" 
-                stroke="#ca8a04" 
-                strokeWidth="0.8" 
-                className="opacity-0 group-hover/point:opacity-100 transition-opacity duration-200" 
-             />
-
-             {/* Vertical Guide Line on Hover */}
-             <line 
-                x1={getX(i)} y1={getY(pt.value)} 
-                x2={getX(i)} y2={100} 
-                stroke="#ca8a04" 
-                strokeWidth="0.2" 
-                strokeDasharray="1 1"
-                className="opacity-0 group-hover/point:opacity-100"
-             />
-
-             {/* Tooltip */}
-             <foreignObject x={Math.min(getX(i) - 15, 70)} y={Math.max(getY(pt.value) - 20, 0)} width="30" height="15" className="opacity-0 group-hover/point:opacity-100 transition-opacity pointer-events-none">
-                 <div className="bg-gray-900/90 backdrop-blur-sm text-white text-[3px] rounded p-1 text-center shadow-lg border border-white/10">
-                    <div className="font-bold">${pt.value.toFixed(0)}</div>
-                    <div className="text-gray-300 text-[2px]">{pt.date}</div>
-                 </div>
-             </foreignObject>
-          </g>
+        <path d={pathD} fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" />
+        {data.map((pt, i) => (
+          <circle
+            key={i}
+            cx={getX(i)}
+            cy={getY(pt.value)}
+            r="2"
+            fill="white"
+            stroke="#c2410c"
+            strokeWidth="1"
+            className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+          >
+            <title>
+              {pt.date.toLocaleDateString()}: ${pt.value.toFixed(2)}
+            </title>
+          </circle>
         ))}
       </svg>
-      
-      {/* X Axis Labels */}
-      <div className="flex justify-between mt-2 text-xs text-gray-400 font-medium px-1">
-          <span>{dataPoints[0].date}</span>
-          <span>{dataPoints[Math.floor(days/2)].date}</span>
-          <span>{dataPoints[days-1].date}</span>
+      <div className="flex justify-between mt-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+        <span>{data[0].date.toLocaleDateString(undefined, { weekday: 'short' })}</span>
+        <span>{data[Math.floor(data.length / 2)].date.toLocaleDateString(undefined, { weekday: 'short' })}</span>
+        <span>Hoy</span>
+      </div>
+    </div>
+  );
+};
+
+const SimulationPanel: React.FC<{ products: Product[] }> = ({ products }) => {
+  const [simProducts, setSimProducts] = useState<SimProduct[]>([]);
+  const [expenses, setExpenses] = useState<SimExpense[]>([
+    { id: '1', name: 'Alquiler', amount: 0, frequency: 'monthly' },
+    { id: '2', name: 'Nómina', amount: 0, frequency: 'weekly' },
+  ]);
+
+  useEffect(() => {
+    if (products.length > 0 && simProducts.length === 0) {
+      setSimProducts(products.map((p) => ({ ...p, simDailyQty: 0 })));
+    }
+  }, [products]);
+
+  const updateSimQty = (id: string, qty: number) => {
+    setSimProducts((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, simDailyQty: Math.max(0, qty) } : p))
+    );
+  };
+
+  const updateExpense = (id: string, field: keyof SimExpense, value: any) => {
+    setExpenses((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, [field]: value } : e))
+    );
+  };
+
+  const addExpense = () => {
+    setExpenses([
+      ...expenses,
+      { id: crypto.randomUUID(), name: 'Nuevo Gasto', amount: 0, frequency: 'monthly' },
+    ]);
+  };
+
+  const removeExpense = (id: string) => {
+    setExpenses(expenses.filter((e) => e.id !== id));
+  };
+
+  // Calculations
+  const dailyRevenue = simProducts.reduce((sum, p) => sum + p.priceRetail * p.simDailyQty, 0);
+  const dailyCost = simProducts.reduce((sum, p) => sum + p.cost * p.simDailyQty, 0);
+  const dailyGrossProfit = dailyRevenue - dailyCost;
+
+  const dailyFixedExpenses = expenses.reduce((sum, e) => {
+    if (e.frequency === 'daily') return sum + e.amount;
+    if (e.frequency === 'weekly') return sum + e.amount / 7;
+    if (e.frequency === 'monthly') return sum + e.amount / 30;
+    return sum;
+  }, 0);
+
+  const dailyNetProfit = dailyGrossProfit - dailyFixedExpenses;
+  const monthlyNetProfit = dailyNetProfit * 30;
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-500 pb-20">
+      {/* Configuration Column */}
+      <div className="lg:col-span-2 space-y-8">
+        {/* Product Simulator */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
+              <Package size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold text-gray-900">Simulación de Ventas Diarias</h3>
+              <p className="text-xs text-gray-500">Estima cuántas unidades venderás al día.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+            {simProducts.map((p) => (
+              <div key={p.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                <div className="flex-1">
+                  <p className="font-bold text-sm text-gray-800 truncate">{p.name}</p>
+                  <p className="text-xs text-gray-500">
+                    Ganancia/ud: <span className="text-green-600 font-bold">${(p.priceRetail - p.cost).toFixed(2)}</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => updateSimQty(p.id, p.simDailyQty - 5)}
+                    className="w-8 h-8 flex items-center justify-center bg-white border rounded-lg hover:bg-gray-100"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    value={p.simDailyQty}
+                    onChange={(e) => updateSimQty(p.id, parseInt(e.target.value) || 0)}
+                    className="w-12 text-center font-bold bg-transparent focus:outline-none"
+                  />
+                  <button
+                    onClick={() => updateSimQty(p.id, p.simDailyQty + 5)}
+                    className="w-8 h-8 flex items-center justify-center bg-white border rounded-lg hover:bg-gray-100"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Expenses Simulator */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-red-100 text-red-600 rounded-lg">
+                <Wallet size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900">Gastos Operativos</h3>
+                <p className="text-xs text-gray-500">Costos fijos recurrentes.</p>
+              </div>
+            </div>
+            <button
+              onClick={addExpense}
+              className="text-xs font-bold bg-gray-900 text-white px-3 py-1.5 rounded-lg hover:bg-gray-800"
+            >
+              + Agregar
+            </button>
+          </div>
+          <div className="space-y-3">
+            {expenses.map((expense) => (
+              <div key={expense.id} className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={expense.name}
+                  onChange={(e) => updateExpense(expense.id, 'name', e.target.value)}
+                  className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-400 focus:outline-none"
+                  placeholder="Nombre del gasto"
+                />
+                <input
+                  type="number"
+                  value={expense.amount}
+                  onChange={(e) => updateExpense(expense.id, 'amount', parseFloat(e.target.value) || 0)}
+                  className="w-24 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-right focus:ring-2 focus:ring-purple-400 focus:outline-none"
+                  placeholder="0.00"
+                />
+                <select
+                  value={expense.frequency}
+                  onChange={(e) => updateExpense(expense.id, 'frequency', e.target.value)}
+                  className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-400 focus:outline-none"
+                >
+                  <option value="daily">Diario</option>
+                  <option value="weekly">Semanal</option>
+                  <option value="monthly">Mensual</option>
+                </select>
+                <button onClick={() => removeExpense(expense.id)} className="text-red-400 hover:text-red-600">
+                  <Trash2 size={18} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Results Column */}
+      <div className="space-y-6">
+        <div className="bg-gray-900 text-white p-6 rounded-2xl shadow-xl sticky top-6">
+          <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
+            <Calculator size={20} className="text-purple-400" /> Resultados Proyectados
+          </h3>
+
+          <div className="space-y-4">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-400">Ventas Diarias Estimadas</span>
+              <span className="font-bold">${dailyRevenue.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-400">Costo Mercancía</span>
+              <span className="font-bold text-red-400">-${dailyCost.toFixed(2)}</span>
+            </div>
+            <div className="border-t border-gray-700 pt-2 flex justify-between items-center text-sm">
+              <span className="text-gray-300">Utilidad Bruta Diaria</span>
+              <span className="font-bold text-green-400">+${dailyGrossProfit.toFixed(2)}</span>
+            </div>
+            
+            <div className="flex justify-between items-center text-sm mt-4">
+              <span className="text-gray-400">Gastos Fijos (Diario)</span>
+              <span className="font-bold text-red-400">-${dailyFixedExpenses.toFixed(2)}</span>
+            </div>
+
+            <div className="border-t border-gray-700 pt-4 mt-4">
+              <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-1">Utilidad Neta Mensual</p>
+              <p className={`text-4xl font-bold ${monthlyNetProfit >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>
+                ${monthlyNetProfit.toLocaleString('es-US', { minimumFractionDigits: 2 })}
+              </p>
+              <p className="text-xs text-gray-500 mt-2">
+                *Proyección basada en 30 días operando con estos promedios.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

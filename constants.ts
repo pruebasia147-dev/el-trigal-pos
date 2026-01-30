@@ -17,7 +17,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     priceRetail: 1.00, 
     priceWholesale: 1.00, 
     cost: 0.10, 
-    stock: 556, // Base 600 - 5 (Lismay) - 10 (Yannelys) - 29 (Albert)
+    stock: 600, 
     category: 'Panadería Salada',
     image: 'https://images.unsplash.com/photo-1589367920969-ab8e050bbb04?auto=format&fit=crop&q=80&w=400' 
   },
@@ -27,7 +27,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     priceRetail: 1.00, 
     priceWholesale: 1.00, 
     cost: 0.20, 
-    stock: 395, // Base 400 - 5 (Lismay)
+    stock: 400, 
     category: 'Panadería Salada',
     image: 'https://images.unsplash.com/photo-1627308595229-7830a5c91f9f?auto=format&fit=crop&q=80&w=400' 
   },
@@ -37,7 +37,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     priceRetail: 1.00, 
     priceWholesale: 1.00, 
     cost: 0.50, 
-    stock: 36, // Base 100 - 13 (Lucia) - 51 (Mariela)
+    stock: 100, 
     category: 'Panadería Salada',
     image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=400' 
   },
@@ -59,7 +59,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     priceRetail: 1.50, 
     priceWholesale: 1.50, 
     cost: 0.70, 
-    stock: 67, // Base 80 - 1 (Lismay) - 8 (Albert) - 4 (Mariela)
+    stock: 80, 
     category: 'Panadería Dulce',
     image: 'https://images.unsplash.com/photo-1598346762291-aee88549193f?auto=format&fit=crop&q=80&w=400' 
   },
@@ -101,7 +101,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     priceRetail: 0.80, 
     priceWholesale: 0.80, 
     cost: 0.50, 
-    stock: 10, // Base 30 - 20 (Albert)
+    stock: 30, 
     category: 'Repostería',
     image: 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?auto=format&fit=crop&q=80&w=400' 
   },
@@ -132,7 +132,7 @@ export const INITIAL_CLIENTS: Client[] = [
     id: 'cli_001',
     name: 'Lismay Rodríguez',
     businessName: 'Lismay Rodríguez',
-    debt: 11.50, 
+    debt: 0, 
     creditLimit: 500,
     address: 'Ruta Distribución'
   },
@@ -172,7 +172,7 @@ export const INITIAL_CLIENTS: Client[] = [
     id: 'cli_006',
     name: 'Yannelys',
     businessName: 'Yannelys',
-    debt: 10.00, 
+    debt: 0, 
     creditLimit: 500,
     address: 'Av. Rotaria, Local 4'
   },
@@ -180,7 +180,7 @@ export const INITIAL_CLIENTS: Client[] = [
     id: 'cli_007',
     name: 'Albert',
     businessName: 'Albert',
-    debt: 57.00, // 41 + 16 (Pasta Seca)
+    debt: 0, 
     creditLimit: 300,
     address: 'Barrio Obrero, Calle 10'
   },
@@ -188,7 +188,7 @@ export const INITIAL_CLIENTS: Client[] = [
     id: 'cli_008',
     name: 'Lucia',
     businessName: 'Lucia',
-    debt: 13.00,
+    debt: 0,
     creditLimit: 300,
     address: 'Ruta Distribución'
   },
@@ -196,136 +196,10 @@ export const INITIAL_CLIENTS: Client[] = [
     id: 'cli_009',
     name: 'Mariela',
     businessName: 'Mariela',
-    debt: 57.00,
+    debt: 0,
     creditLimit: 300,
     address: 'Ruta Distribución'
   }
 ];
 
-export const INITIAL_SALES: Sale[] = [
-  {
-    id: 'X92-J4K',
-    date: new Date().toISOString(),
-    type: 'dispatch',
-    clientId: 'cli_001',
-    clientName: 'Lismay Rodríguez',
-    sellerId: 'u1',
-    totalAmount: 11.50,
-    items: [
-      {
-        productId: '2',
-        productName: 'Pan Canilla',
-        quantity: 5,
-        unitPrice: 1.00,
-        subtotal: 5.00
-      },
-      {
-        productId: '1',
-        productName: 'Pan Francés',
-        quantity: 5,
-        unitPrice: 1.00,
-        subtotal: 5.00
-      },
-      {
-        productId: '5',
-        productName: 'Pan de Guayaba',
-        quantity: 1,
-        unitPrice: 1.50,
-        subtotal: 1.50
-      }
-    ]
-  },
-  {
-    id: 'M23-P8L',
-    date: new Date(Date.now() + 1000).toISOString(), 
-    type: 'dispatch',
-    clientId: 'cli_008',
-    clientName: 'Lucia',
-    sellerId: 'u1',
-    totalAmount: 13.00,
-    items: [
-      {
-        productId: '3',
-        productName: 'Pan Campesino',
-        quantity: 13,
-        unitPrice: 1.00,
-        subtotal: 13.00
-      }
-    ]
-  },
-  {
-    id: 'B77-Q2W',
-    date: new Date(Date.now() + 2000).toISOString(),
-    type: 'dispatch',
-    clientId: 'cli_006',
-    clientName: 'Yannelys',
-    sellerId: 'u1',
-    totalAmount: 10.00,
-    items: [
-      {
-        productId: '1',
-        productName: 'Pan Francés',
-        quantity: 10,
-        unitPrice: 1.00,
-        subtotal: 10.00
-      }
-    ]
-  },
-  {
-    id: 'R44-Z9X',
-    date: new Date(Date.now() + 3000).toISOString(),
-    type: 'dispatch',
-    clientId: 'cli_007',
-    clientName: 'Albert',
-    sellerId: 'u1',
-    totalAmount: 57.00,
-    items: [
-      {
-        productId: '1',
-        productName: 'Pan Francés',
-        quantity: 29,
-        unitPrice: 1.00,
-        subtotal: 29.00
-      },
-      {
-        productId: '5',
-        productName: 'Pan de Guayaba',
-        quantity: 8,
-        unitPrice: 1.50,
-        subtotal: 12.00
-      },
-      {
-        productId: '9',
-        productName: 'Pasta seca',
-        quantity: 20,
-        unitPrice: 0.80,
-        subtotal: 16.00
-      }
-    ]
-  },
-  {
-    id: 'T88-X1Y',
-    date: new Date(Date.now() + 4000).toISOString(),
-    type: 'dispatch',
-    clientId: 'cli_009',
-    clientName: 'Mariela',
-    sellerId: 'u1',
-    totalAmount: 57.00,
-    items: [
-      {
-        productId: '3',
-        productName: 'Pan Campesino',
-        quantity: 51,
-        unitPrice: 1.00,
-        subtotal: 51.00
-      },
-      {
-        productId: '5',
-        productName: 'Pan de Guayaba',
-        quantity: 4,
-        unitPrice: 1.50,
-        subtotal: 6.00
-      }
-    ]
-  }
-];
+export const INITIAL_SALES: Sale[] = [];

@@ -265,6 +265,55 @@ class DBService {
           return true;
       } catch { return false; }
   }
+
+  // --- RESET TOTAL (MODO EXTERMINIO) ---
+  // Esta versión es la más robusta posible: primero lee todos los IDs y luego los borra explícitamente.
+  // Esto evita problemas con filtros genéricos (como gte o neq) que a veces son bloqueados por políticas de seguridad.
+  async clearAllSalesData(onProgress?: (status: string) => void): Promise<void> {
+      try {
+          // 1. Borrar VENTAS (Fetching IDs first ensures we target existing rows)
+          if(onProgress) onProgress("Obteniendo registros de venta...");
+          const { data: allSales } = await this.supabase.from('sales').select('id');
+          
+          if (allSales && allSales.length > 0) {
+              const saleIds = allSales.map(s => s.id);
+              if(onProgress) onProgress(`Eliminando ${saleIds.length} facturas...`);
+              
+              // Borramos en lotes de 100 para evitar timeout
+              for (let i = 0; i < saleIds.length; i += 100) {
+                  const chunk = saleIds.slice(i, i + 100);
+                  const { error } = await this.supabase.from('sales').delete().in('id', chunk);
+                  if (error) console.error("Error borrando lote ventas:", error);
+              }
+          }
+
+          // 2. Borrar VENTAS SUSPENDIDAS
+          if(onProgress) onProgress("Limpiando carritos en espera...");
+          const { data: allSuspended } = await this.supabase.from('suspended_sales').select('id');
+          
+          if (allSuspended && allSuspended.length > 0) {
+              const suspIds = allSuspended.map(s => s.id);
+              await this.supabase.from('suspended_sales').delete().in('id', suspIds);
+          }
+
+          // 3. Resetear DEUDAS de Clientes
+          if(onProgress) onProgress("Restableciendo cuentas de clientes...");
+          const { data: allClients } = await this.supabase.from('clients').select('id');
+          
+          if (allClients && allClients.length > 0) {
+              const clientIds = allClients.map(c => c.id);
+              // Update debt to 0 for all IDs found
+              await this.supabase.from('clients').update({ debt: 0 }).in('id', clientIds);
+          }
+
+          if(onProgress) onProgress("Limpieza finalizada.");
+          await this.logAction('RESET TOTAL', 'Se ha limpiado toda la base de datos de ventas.');
+
+      } catch (error: any) {
+          console.error("Critical Reset Error:", error);
+          throw new Error("Falló el proceso de limpieza. Ver consola.");
+      }
+  }
 }
 
 export const db = new DBService();
