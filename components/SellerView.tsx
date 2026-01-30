@@ -17,7 +17,14 @@ const SellerView: React.FC<SellerViewProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState<'pos' | 'dispatch'>('pos');
   const [products, setProducts] = useState<Product[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  const [settings, setSettings] = useState<AppSettings>({ exchangeRate: 0 });
+  // CORRECCIÓN AQUÍ: Inicializamos el objeto completo para evitar el error TS2345
+  const [settings, setSettings] = useState<AppSettings>({ 
+    exchangeRate: 0,
+    businessName: '',
+    rif: '',
+    address: '',
+    phone: ''
+  });
   const [searchTerm, setSearchTerm] = useState('');
   
   // POS State
