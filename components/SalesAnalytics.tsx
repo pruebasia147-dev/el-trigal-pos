@@ -175,18 +175,20 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
       }
   };
 
-  // --- PAY DISPATCH LOGIC ---
+  // --- PAY DISPATCH LOGIC (UPDATED) ---
   const handlePayDispatch = async (sale: Sale) => {
       if (sale.type !== 'dispatch' || !sale.clientId) return;
 
-      const confirmMsg = `¿Deseas registrar el pago TOTAL de esta factura por $${sale.totalAmount.toFixed(2)}?\n\nEsto se abonará a la deuda de ${sale.clientName} y sumará a la caja de hoy.`;
+      const confirmMsg = `¿Deseas registrar el pago TOTAL de esta factura por $${sale.totalAmount.toFixed(2)}?\n\n- Se marcará como PAGADA.\n- Se restará de la deuda de ${sale.clientName}.\n- Se sumará a la CAJA de hoy.`;
       
       if (confirm(confirmMsg)) {
           try {
-              await db.registerClientPayment(sale.clientId, sale.totalAmount, `Pago Factura #${sale.id.slice(0,6)}`);
-              alert('Pago registrado exitosamente. El dinero ahora está en caja.');
+              // Usar la nueva función específica que actualiza el estado de la factura
+              await db.payDispatchInvoice(sale.id, sale.totalAmount, sale.clientId);
+              alert('✅ Factura cobrada exitosamente.');
               await onRefresh();
           } catch (error) {
+              console.error(error);
               alert('Error registrando el pago.');
           }
       }
@@ -400,7 +402,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                                             <button
                                                 onClick={() => handlePayDispatch(sale)}
                                                 className="text-green-600 hover:text-green-800 hover:bg-green-50 p-2 rounded-full transition-all"
-                                                title="Registrar Cobro"
+                                                title="Cobrar y Marcar Pagado"
                                             >
                                                 <DollarSign size={18}/>
                                             </button>
