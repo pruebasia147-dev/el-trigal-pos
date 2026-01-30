@@ -7,27 +7,24 @@ import ClientCRM from './ClientCRM';
 import { 
   LayoutDashboard, Package, Users, Settings, LogOut, 
   TrendingUp, DollarSign, Edit, Menu, X, Plus, BarChart3, 
-  Wallet, CalendarClock, Activity, Calculator, Trash2,
-  AlertCircle, CalendarDays, Coins, Warehouse, PieChart, Save, Upload, Store,
-  MessageSquare, Send, Bot, ScrollText, UserCog, AlertTriangle, Loader2, Truck, Calendar
+  Wallet, Activity, Calculator, Trash2,
+  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck
 } from 'lucide-react';
 
 interface AdminProps {
   onLogout: () => void;
 }
 
-// --- Types for Simulation (Advanced Version) ---
+// --- Types for Simple Simulation ---
 interface SimProduct extends Product {
-    simCost: number;
-    simPrice: number;
-    simDailyQty: number; 
+    simDailyQty: number; // Cantidad diaria simulada
 }
 
 interface SimExpense {
     id: string;
     name: string;
     amount: number;
-    frequency: 'Mensual' | 'Semanal' | 'Diario';
+    frequency: 'Diario' | 'Semanal' | 'Mensual';
 }
 
 const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
@@ -45,7 +42,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   const [resetStatus, setResetStatus] = useState('');
 
   // Chat State
-  const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
 
   // Simple edit states
@@ -55,13 +51,13 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   // New State for Profit Detail Modal
   const [showProfitDetail, setShowProfitDetail] = useState(false);
 
-  // --- SIMULATION STATE (Advanced Dark/Gold Version) ---
-  const [simWorkingDays, setSimWorkingDays] = useState(26);
+  // --- SIMPLE SIMULATION STATE ---
   const [simProducts, setSimProducts] = useState<SimProduct[]>([]);
-  const [simExpenses, setSimExpenses] = useState<SimExpense[]>([]);
+  const [simExpenses, setSimExpenses] = useState<SimExpense[]>([
+      { id: '1', name: 'Alquiler (Ejemplo)', amount: 10, frequency: 'Diario' }
+  ]);
   const [newExpenseName, setNewExpenseName] = useState('');
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
-  const [newExpenseFreq, setNewExpenseFreq] = useState<'Mensual' | 'Semanal' | 'Diario'>('Mensual');
 
   // Hidden File Input Ref
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -98,28 +94,23 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
       if (products.length > 0 && simProducts.length === 0) {
           setSimProducts(products.map(p => ({ 
               ...p, 
-              simCost: p.cost,
-              simPrice: p.priceWholesale, // Default to wholesale price
-              simDailyQty: 0 // Start at 0
+              simDailyQty: 0 
           })));
       }
   }, [products]);
 
-  // --- SIMULATION HANDLERS ---
-  const updateSimProduct = (id: string, field: keyof SimProduct, value: number) => {
-      setSimProducts(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
+  // --- SIMPLE SIMULATION HANDLERS ---
+  const updateSimQty = (id: string, qty: number) => {
+      setSimProducts(prev => prev.map(p => p.id === id ? { ...p, simDailyQty: qty } : p));
   };
 
   const addSimExpense = () => {
       if (!newExpenseName || !newExpenseAmount) return;
-      const amount = parseFloat(newExpenseAmount);
-      if (isNaN(amount)) return;
-
       setSimExpenses(prev => [...prev, {
           id: Date.now().toString(),
           name: newExpenseName,
-          amount,
-          frequency: newExpenseFreq
+          amount: parseFloat(newExpenseAmount),
+          frequency: 'Diario'
       }]);
       setNewExpenseName('');
       setNewExpenseAmount('');
@@ -129,38 +120,28 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
       setSimExpenses(prev => prev.filter(e => e.id !== id));
   };
 
-  // Simulation Calculations (Advanced Logic)
-  const simResults = useMemo(() => {
-      // 1. Daily Operations
-      const dailyRevenue = simProducts.reduce((sum, p) => sum + (p.simPrice * p.simDailyQty), 0);
-      const dailyCOGS = simProducts.reduce((sum, p) => sum + (p.simCost * p.simDailyQty), 0);
-      const dailyGrossProfit = dailyRevenue - dailyCOGS;
-
-      // 2. Monthly Projections
-      const monthlyRevenue = dailyRevenue * simWorkingDays;
-      const monthlyCOGS = dailyCOGS * simWorkingDays;
+  // Simple Calculation Logic
+  const simFinancials = useMemo(() => {
+      const dailyRevenue = simProducts.reduce((sum, p) => sum + (p.priceWholesale * p.simDailyQty), 0);
+      const dailyCost = simProducts.reduce((sum, p) => sum + (p.cost * p.simDailyQty), 0);
       
-      const monthlyExpenses = simExpenses.reduce((sum, e) => {
-          let multiplier = 1;
-          if (e.frequency === 'Diario') multiplier = simWorkingDays;
-          if (e.frequency === 'Semanal') multiplier = 4.33; // Avg weeks in month
-          if (e.frequency === 'Mensual') multiplier = 1;
-          return sum + (e.amount * multiplier);
+      const dailyExpenses = simExpenses.reduce((sum, e) => {
+          // Normalize everything to Daily for this simple view
+          if (e.frequency === 'Mensual') return sum + (e.amount / 30);
+          if (e.frequency === 'Semanal') return sum + (e.amount / 7);
+          return sum + e.amount;
       }, 0);
 
-      const netIncome = monthlyRevenue - monthlyCOGS - monthlyExpenses;
-      const netMargin = monthlyRevenue > 0 ? (netIncome / monthlyRevenue) * 100 : 0;
+      const dailyGrossProfit = dailyRevenue - dailyCost;
+      const dailyNetProfit = dailyGrossProfit - dailyExpenses;
 
       return {
           dailyRevenue,
-          dailyGrossProfit,
-          monthlyRevenue,
-          monthlyCOGS,
-          monthlyExpenses,
-          netIncome,
-          netMargin
+          dailyCost,
+          dailyExpenses,
+          dailyNetProfit
       };
-  }, [simProducts, simExpenses, simWorkingDays]);
+  }, [simProducts, simExpenses]);
 
 
   const handleUpdateSettings = async () => {
@@ -205,39 +186,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   const handleNavClick = (tab: typeof activeTab) => {
     setActiveTab(tab);
     setIsSidebarOpen(false);
-  };
-
-  // --- Backup Functions ---
-  const handleDownloadBackup = async () => {
-      const json = await db.getDatabaseDump();
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `respaldo_${settings.businessName.replace(/\s+/g, '_').toLowerCase()}_${new Date().toISOString().slice(0,10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-  };
-
-  const handleRestoreBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-          const json = event.target?.result as string;
-          if (json) {
-              const success = await db.restoreDatabase(json);
-              if (success) {
-                  alert('¡Base de datos restaurada con éxito!');
-                  await loadData();
-              } else {
-                  alert('Error: El archivo no es válido.');
-              }
-          }
-      };
-      reader.readAsText(file);
-      if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // --- Financial & Projection Logic ---
@@ -383,13 +331,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
 
   const profitBreakdown = getDailyProfitBreakdown();
 
-  const handleChatSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if(!chatMessage.trim()) return;
-    alert(`Mensaje enviado: "${chatMessage}"`);
-    setChatMessage('');
-  };
-
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans text-gray-900">
       {/* Mobile Header */}
@@ -420,7 +361,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
           {[
             { id: 'overview', label: 'Resumen', icon: LayoutDashboard },
             { id: 'analytics', label: 'Reportes Detallados', icon: BarChart3 },
-            { id: 'simulation', label: 'Simulador (Nuevo)', icon: Calculator },
+            { id: 'simulation', label: 'Simulador (Básico)', icon: Calculator },
             { id: 'clients', label: 'Clientes CRM', icon: Users },
             { id: 'inventory', label: 'Inventario', icon: Package },
             { id: 'logs', label: 'Actividad', icon: ScrollText },
@@ -587,196 +528,103 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
             <SalesAnalytics sales={sales} products={products} settings={settings} onRefresh={loadData} />
         )}
 
-        {/* --- RESTORED ORIGINAL ADVANCED SIMULATION PANEL (DARK/GOLD STYLE) --- */}
+        {/* --- RESTORED ORIGINAL (SIMPLE) SIMULATION PANEL --- */}
         {activeTab === 'simulation' && (
-            <div className="animate-in fade-in duration-500 space-y-6 max-w-2xl mx-auto">
-                {/* 1. Working Days Card */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                    <div className="flex items-center gap-2 mb-4">
-                        <CalendarDays size={20} className="text-gray-400" />
-                        <div>
-                            <h3 className="font-bold text-lg text-gray-900">Días Laborables</h3>
-                            <p className="text-xs text-gray-500">¿Cuántos días abres al mes?</p>
-                        </div>
-                    </div>
-                    <div className="flex gap-2">
-                        <button onClick={() => setSimWorkingDays(22)} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold border transition-colors ${simWorkingDays === 22 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-gray-50 border-transparent text-gray-600'}`}>L-V (22)</button>
-                        <button onClick={() => setSimWorkingDays(26)} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold border transition-colors ${simWorkingDays === 26 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-gray-50 border-transparent text-gray-600'}`}>L-S (26)</button>
-                        <button onClick={() => setSimWorkingDays(30)} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold border transition-colors ${simWorkingDays === 30 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-gray-50 border-transparent text-gray-600'}`}>30 Días</button>
-                        <div className="w-20">
-                            <input 
-                                type="number" 
-                                className="w-full h-full text-center border border-gray-200 rounded-lg font-bold text-gray-900 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none" 
-                                value={simWorkingDays}
-                                onChange={e => setSimWorkingDays(parseInt(e.target.value) || 0)}
-                            />
-                        </div>
-                    </div>
+            <div className="animate-in fade-in duration-500 space-y-6">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold text-gray-900">Simulador de Rentabilidad (Básico)</h2>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                     <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                         <p className="text-xs text-gray-500 uppercase font-bold">Ventas Diarias Est.</p>
+                         <p className="text-2xl font-bold text-blue-600">${simFinancials.dailyRevenue.toFixed(2)}</p>
+                     </div>
+                     <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                         <p className="text-xs text-gray-500 uppercase font-bold">Costo Mercancía</p>
+                         <p className="text-2xl font-bold text-red-400">-${simFinancials.dailyCost.toFixed(2)}</p>
+                     </div>
+                     <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                         <p className="text-xs text-gray-500 uppercase font-bold">Gastos Operativos</p>
+                         <p className="text-2xl font-bold text-orange-400">-${simFinancials.dailyExpenses.toFixed(2)}</p>
+                     </div>
+                     <div className={`p-4 rounded-xl shadow-sm border ${simFinancials.dailyNetProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                         <p className={`text-xs uppercase font-bold ${simFinancials.dailyNetProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>Ganancia Neta Diaria</p>
+                         <p className={`text-2xl font-bold ${simFinancials.dailyNetProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>${simFinancials.dailyNetProfit.toFixed(2)}</p>
+                     </div>
                 </div>
 
-                {/* 2. Sales Estimation Card */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div className="p-6 border-b border-gray-50">
-                        <div className="flex items-center gap-2 mb-1">
-                            <Package size={20} className="text-gray-400"/>
-                            <h3 className="font-bold text-lg text-gray-900">Estimación de Ventas</h3>
+                <div className="flex flex-col lg:flex-row gap-6">
+                    {/* Products Table */}
+                    <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="p-4 border-b border-gray-100 bg-gray-50">
+                            <h3 className="font-bold text-gray-800">Proyección por Producto</h3>
                         </div>
-                        <p className="text-xs text-gray-500">Ajusta el volumen diario estimado para calcular ingresos.</p>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-bold tracking-wider">
-                                <tr>
-                                    <th className="px-6 py-3 text-left">Producto</th>
-                                    <th className="px-6 py-3 text-left w-24">Costo ($)</th>
-                                    <th className="px-6 py-3 text-left w-24">Precio ($)</th>
-                                    <th className="px-6 py-3 text-left w-24">Cant. Dia</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {simProducts.map(p => (
-                                    <tr key={p.id} className="hover:bg-gray-50/50">
-                                        <td className="px-6 py-4 font-bold text-gray-800">{p.name}</td>
-                                        <td className="px-6 py-4">
-                                            <input 
-                                                type="number" 
-                                                className="w-20 p-2 border border-gray-200 rounded-lg text-gray-600 focus:ring-2 focus:ring-amber-200 outline-none"
-                                                value={p.simCost}
-                                                onChange={e => updateSimProduct(p.id, 'simCost', parseFloat(e.target.value))}
-                                            />
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <input 
-                                                type="number" 
-                                                className="w-20 p-2 border border-gray-200 rounded-lg text-gray-600 focus:ring-2 focus:ring-amber-200 outline-none"
-                                                value={p.simPrice}
-                                                onChange={e => updateSimProduct(p.id, 'simPrice', parseFloat(e.target.value))}
-                                            />
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <input 
-                                                type="number" 
-                                                className="w-20 p-2 border border-gray-200 rounded-lg font-bold text-gray-900 focus:ring-2 focus:ring-amber-200 outline-none bg-gray-50 focus:bg-white"
-                                                value={p.simDailyQty}
-                                                onChange={e => updateSimProduct(p.id, 'simDailyQty', parseFloat(e.target.value))}
-                                            />
-                                        </td>
+                        <div className="overflow-x-auto max-h-[500px]">
+                            <table className="w-full text-sm">
+                                <thead className="bg-white sticky top-0 z-10 shadow-sm">
+                                    <tr className="text-xs text-gray-500 uppercase text-left">
+                                        <th className="p-3">Producto</th>
+                                        <th className="p-3 text-center">Venta Diaria (Unds)</th>
+                                        <th className="p-3 text-right">Margen Unit.</th>
+                                        <th className="p-3 text-right">Ganancia Día</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                {/* 3. Expenses Card */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                    <div className="mb-4">
-                        <h3 className="font-bold text-lg text-gray-900">$ Gastos Operativos</h3>
-                        <p className="text-xs text-gray-500">Agrega gastos fijos. Nota: Los gastos diarios se multiplicarán por {simWorkingDays} días.</p>
-                    </div>
-                    
-                    <div className="space-y-3 mb-6">
-                        <input 
-                            type="text" 
-                            placeholder="Nombre (ej. Alquiler, Luz)" 
-                            className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-200 outline-none text-sm"
-                            value={newExpenseName}
-                            onChange={e => setNewExpenseName(e.target.value)}
-                        />
-                        <div className="flex gap-2">
-                            <input 
-                                type="number" 
-                                placeholder="$ 0.00" 
-                                className="flex-1 p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-200 outline-none text-sm"
-                                value={newExpenseAmount}
-                                onChange={e => setNewExpenseAmount(e.target.value)}
-                            />
-                            <select 
-                                className="flex-1 p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-200 outline-none text-sm bg-white"
-                                value={newExpenseFreq}
-                                onChange={e => setNewExpenseFreq(e.target.value as any)}
-                            >
-                                <option value="Mensual">Mensual</option>
-                                <option value="Semanal">Semanal</option>
-                                <option value="Diario">Diario</option>
-                            </select>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50">
+                                    {simProducts.map(p => (
+                                        <tr key={p.id} className="hover:bg-gray-50">
+                                            <td className="p-3 font-medium text-gray-800">{p.name}</td>
+                                            <td className="p-3 text-center">
+                                                <input 
+                                                    type="number" 
+                                                    className="w-20 text-center border rounded-lg p-1 font-bold bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    value={p.simDailyQty}
+                                                    onChange={(e) => updateSimQty(p.id, parseInt(e.target.value) || 0)}
+                                                />
+                                            </td>
+                                            <td className="p-3 text-right text-gray-500">${(p.priceWholesale - p.cost).toFixed(2)}</td>
+                                            <td className="p-3 text-right font-bold text-green-600">${((p.priceWholesale - p.cost) * p.simDailyQty).toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
-                        <button 
-                            onClick={addSimExpense}
-                            className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors"
-                        >
-                            Agregar
-                        </button>
                     </div>
 
-                    <div className="border-t border-dashed border-gray-200 pt-4">
-                        {simExpenses.length === 0 ? (
-                            <p className="text-center text-gray-400 text-sm py-4 border-2 border-dashed border-gray-100 rounded-xl">No hay gastos registrados aún.</p>
-                        ) : (
-                            <div className="space-y-2">
-                                {simExpenses.map(expense => (
-                                    <div key={expense.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl group">
-                                        <div>
-                                            <p className="font-bold text-sm text-gray-800">{expense.name}</p>
-                                            <p className="text-xs text-gray-500">{expense.frequency}</p>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <span className="font-mono font-bold text-gray-700">${expense.amount.toFixed(2)}</span>
-                                            <button onClick={() => removeSimExpense(expense.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={16}/></button>
-                                        </div>
+                    {/* Expenses Section */}
+                    <div className="w-full lg:w-1/3 bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+                        <h3 className="font-bold text-gray-800 mb-4">Gastos Fijos</h3>
+                        
+                        <div className="space-y-3 mb-4">
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    placeholder="Concepto" 
+                                    className="flex-1 p-2 border rounded-lg text-sm"
+                                    value={newExpenseName}
+                                    onChange={e => setNewExpenseName(e.target.value)}
+                                />
+                                <input 
+                                    type="number" 
+                                    placeholder="$" 
+                                    className="w-20 p-2 border rounded-lg text-sm"
+                                    value={newExpenseAmount}
+                                    onChange={e => setNewExpenseAmount(e.target.value)}
+                                />
+                            </div>
+                            <button onClick={addSimExpense} className="w-full bg-slate-800 text-white py-2 rounded-lg text-sm font-bold">Agregar Gasto</button>
+                        </div>
+
+                        <div className="space-y-2">
+                            {simExpenses.map(e => (
+                                <div key={e.id} className="flex justify-between items-center p-2 bg-gray-50 rounded-lg text-sm">
+                                    <span>{e.name}</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold">${e.amount}</span>
+                                        <button onClick={() => removeSimExpense(e.id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={14}/></button>
                                     </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* 4. Results Card (Original Dark Design) */}
-                <div className="bg-slate-900 text-white rounded-3xl p-6 shadow-2xl">
-                    <h3 className="font-bold text-xl mb-6 flex items-center gap-2">
-                        <Calculator className="text-yellow-500" /> Resultados
-                    </h3>
-
-                    <div className="mb-6">
-                        <p className="text-yellow-500 text-xs font-bold uppercase tracking-wider mb-3">Día Operativo Típico</p>
-                        <div className="flex justify-between items-center mb-2">
-                            <span className="text-slate-300 text-sm">Ingreso Bruto</span>
-                            <span className="font-bold font-mono">${simResults.dailyRevenue.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <span className="text-slate-300 text-sm">Ganancia Bruta</span>
-                            <span className="font-bold font-mono text-emerald-400">+${simResults.dailyGrossProfit.toFixed(2)}</span>
-                        </div>
-                    </div>
-
-                    <div className="bg-yellow-600 rounded-2xl p-6 text-white relative overflow-hidden">
-                        <div className="absolute top-4 right-4 bg-black/20 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
-                            <Calendar size={12}/> {simWorkingDays} Días
-                        </div>
-                        
-                        <p className="text-yellow-100 text-xs font-bold uppercase tracking-wider mb-4">Proyección Mensual</p>
-                        
-                        <div className="space-y-2 mb-6">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-yellow-50/80">Ventas Totales</span>
-                                <span className="font-mono font-bold">${simResults.monthlyRevenue.toFixed(0)}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                                <span className="text-yellow-50/80">Costos Producción</span>
-                                <span className="font-mono font-bold">-${simResults.monthlyCOGS.toFixed(0)}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                                <span className="text-yellow-50/80">Gastos Fijos/Var.</span>
-                                <span className="font-mono font-bold">-${simResults.monthlyExpenses.toFixed(0)}</span>
-                            </div>
-                        </div>
-
-                        <div className="border-t border-white/20 pt-4 text-center">
-                            <p className="text-xs text-yellow-100 mb-1">Utilidad Neta Real</p>
-                            <p className="text-5xl font-bold tracking-tight mb-2">${simResults.netIncome.toFixed(0)}</p>
-                            <p className="text-xs font-medium bg-black/10 inline-block px-3 py-1 rounded-full">
-                                Margen Neto Real: {simResults.netMargin.toFixed(1)}%
-                            </p>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
@@ -930,9 +778,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                 </div>
             </div>
         )}
+      </main>
 
-        {/* ... Settings, Chat, Modals ... */}
-        {/* PROFIT DETAIL MODAL UPDATED */}
+      {/* ... Settings, Chat, Modals ... */}
+      {/* PROFIT DETAIL MODAL UPDATED */}
       {showProfitDetail && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
