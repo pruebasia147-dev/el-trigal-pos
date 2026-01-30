@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Package, Users, Settings, LogOut, 
   TrendingUp, DollarSign, Edit, Menu, X, Plus, BarChart3, 
   Wallet, Activity, Calculator, Trash2,
-  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck, ArrowRight, Tag
+  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck, ArrowRight, Tag, ArrowUp
 } from 'lucide-react';
 
 interface AdminProps {
@@ -489,7 +489,16 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                             <span className="text-xs font-bold uppercase tracking-wider">Dinero en Caja (Hoy)</span>
                         </div>
                         <h3 className="text-4xl font-bold tracking-tight">${financials.todayTotalCashInHand.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        <p className="text-sm text-gray-400 mt-1 flex items-center gap-1">Ventas Contado + Cobros Deuda <ArrowRight size={14}/></p>
+                        
+                        {/* UPDATE: Display explicit Abonos info */}
+                        <div className="flex flex-col mt-2 gap-1">
+                            <div className="flex items-center gap-2">
+                                <span className="bg-emerald-500/20 text-emerald-300 text-xs px-2 py-1 rounded-lg flex items-center gap-1 font-bold border border-emerald-500/30">
+                                    <ArrowUp size={12} /> Abonos: ${financials.todayDebtCollection.toLocaleString('es-US', {minimumFractionDigits: 2})}
+                                </span>
+                            </div>
+                            <p className="text-[10px] text-gray-400 opacity-70">Incluye venta mostrador y cobros</p>
+                        </div>
                     </div>
                  </div>
 
@@ -566,7 +575,13 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                             <Coins size={24} />
                         </div>
                     </div>
-                    <p className="text-xs text-gray-400">Capital pendiente acumulado</p>
+                    
+                    {/* UPDATE: Display daily recovery */}
+                    <div className="mt-1">
+                        <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-md flex items-center gap-1 w-fit">
+                            Recuperado hoy: ${financials.todayDebtCollection.toLocaleString('es-US', {minimumFractionDigits: 2})}
+                        </span>
+                    </div>
                 </div>
 
                 <div 
