@@ -67,3 +67,11 @@ export interface AppSettings {
   address: string;
   phone: string;
 }
+
+export interface AuditLog {
+  id: string;
+  date: string;
+  action: string; // 'UPDATE', 'DELETE', 'CREATE', etc.
+  details: string;
+  user: string; // Nombre o ID del usuario
+}

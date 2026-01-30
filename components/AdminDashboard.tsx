@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { db } from '../services/db';
-import { AppSettings, Client, Product, Sale } from '../types';
+import { AppSettings, Client, Product, Sale, AuditLog } from '../types';
 import SalesAnalytics from './SalesAnalytics';
 import ClientCRM from './ClientCRM';
 import { 
@@ -9,7 +9,7 @@ import {
   TrendingUp, DollarSign, Edit, Menu, X, Plus, BarChart3, 
   Wallet, ArrowUpRight, CalendarClock, Activity, Calculator, Trash2,
   AlertCircle, CalendarDays, Coins, Warehouse, PieChart, Save, Upload, Store,
-  MessageSquare, Send, Bot
+  MessageSquare, Send, Bot, ScrollText, UserCog
 } from 'lucide-react';
 
 interface AdminProps {
@@ -29,10 +29,11 @@ interface SimExpense {
 }
 
 const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'inventory' | 'clients' | 'simulation' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'inventory' | 'clients' | 'simulation' | 'settings' | 'logs'>('overview');
   const [products, setProducts] = useState<Product[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [settings, setSettings] = useState<AppSettings>({ exchangeRate: 0, businessName: '', rif: '', address: '', phone: '' });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -62,20 +63,31 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
     setSales(s);
     setSettings(st);
   };
+  
+  const loadLogs = async () => {
+      const logs = await db.getAuditLogs();
+      setAuditLogs(logs);
+  };
 
   useEffect(() => {
     loadData();
+    if (activeTab === 'logs') {
+        loadLogs();
+    }
   }, [activeTab]);
 
   const handleUpdateSettings = async () => {
     await db.saveSettings(settings);
     alert('Ajustes guardados correctamente.');
+    loadLogs();
   };
 
   const handleSaveProduct = async (product: Product) => {
     await db.updateProduct(product);
     setEditingProduct(null);
     loadData();
+    // No need to call loadLogs() here as db.ts logs automatically, but if we want instant feedback in the Logs tab (if active):
+    if(activeTab === 'logs') loadLogs();
   };
 
   const handleSaveClient = async (client: Client) => {
@@ -268,6 +280,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
             { id: 'simulation', label: 'Simulador (Nuevo)', icon: Calculator },
             { id: 'clients', label: 'Clientes CRM', icon: Users },
             { id: 'inventory', label: 'Inventario', icon: Package },
+            { id: 'logs', label: 'Actividad', icon: ScrollText }, // NEW TAB
             { id: 'settings', label: 'Ajustes', icon: Settings },
           ].map((item) => (
              <button 
@@ -537,6 +550,71 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                     onEditClient={setEditingClient} 
                     onRefreshData={loadData}
                />
+            </div>
+        )}
+
+        {/* --- AUDIT LOGS TAB (NEW) --- */}
+        {activeTab === 'logs' && (
+            <div className="animate-in fade-in duration-500">
+                <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900">Bitácora de Actividad</h2>
+                        <p className="text-gray-500">Registro histórico de cambios en el sistema.</p>
+                    </div>
+                    <button onClick={loadLogs} className="text-sm font-bold text-bakery-600 bg-bakery-50 px-4 py-2 rounded-lg hover:bg-bakery-100">
+                        Actualizar
+                    </button>
+                </div>
+                
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50 border-b border-gray-100">
+                            <tr>
+                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Fecha / Hora</th>
+                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Acción</th>
+                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Usuario</th>
+                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Detalles</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {auditLogs.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} className="px-6 py-12 text-center text-gray-400">
+                                        <ScrollText size={32} className="mx-auto mb-2 opacity-20"/>
+                                        <p>No hay registros de actividad aún.</p>
+                                    </td>
+                                </tr>
+                            ) : (
+                                auditLogs.map(log => (
+                                    <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                                        <td className="px-6 py-4 text-sm whitespace-nowrap">
+                                            <div className="font-medium text-gray-900">{new Date(log.date).toLocaleDateString()}</div>
+                                            <div className="text-xs text-gray-500">{new Date(log.date).toLocaleTimeString()}</div>
+                                        </td>
+                                        <td className="px-6 py-4 text-sm">
+                                            <span className={`px-2 py-1 rounded-md text-xs font-bold uppercase ${
+                                                log.action.includes('ELIMINAR') ? 'bg-red-100 text-red-700' :
+                                                log.action.includes('EDITAR') || log.action.includes('CONFIGURACIÓN') ? 'bg-orange-100 text-orange-700' :
+                                                'bg-blue-100 text-blue-700'
+                                            }`}>
+                                                {log.action}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-sm">
+                                            <div className="flex items-center gap-2">
+                                                <UserCog size={16} className="text-gray-400"/>
+                                                <span className="text-gray-700">{log.user || 'Sistema'}</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-gray-600 max-w-md">
+                                            {log.details}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         )}
 
