@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Package, Users, Settings, LogOut, 
   TrendingUp, DollarSign, Edit, Menu, X, Plus, BarChart3, 
   Wallet, Activity, Calculator, Trash2,
-  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck
+  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck, ArrowRight, Tag
 } from 'lucide-react';
 
 interface AdminProps {
@@ -48,8 +48,16 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   
-  // New State for Profit Detail Modal
+  // --- MODAL STATES ---
   const [showProfitDetail, setShowProfitDetail] = useState(false);
+  const [showCashFlowDetail, setShowCashFlowDetail] = useState(false);
+  const [showCreditDetail, setShowCreditDetail] = useState(false);
+  
+  // New Modals for Secondary Cards
+  const [showPendingProfitDetail, setShowPendingProfitDetail] = useState(false);
+  const [showTotalDebtDetail, setShowTotalDebtDetail] = useState(false);
+  const [showInventoryDetail, setShowInventoryDetail] = useState(false);
+  const [showInventoryRetailDetail, setShowInventoryRetailDetail] = useState(false); // NEW
 
   // --- SIMPLE SIMULATION STATE ---
   const [simProducts, setSimProducts] = useState<SimProduct[]>([]);
@@ -252,6 +260,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
     // 4. Assets & Liabilities
     const totalDebt = clients.reduce((sum, c) => sum + c.debt, 0);
     const inventoryValue = products.reduce((sum, p) => sum + (p.cost * p.stock), 0);
+    const inventoryRetailValue = products.reduce((sum, p) => sum + (p.priceRetail * p.stock), 0); // NEW
     const lowStockCount = products.filter(p => p.stock <= 20).length;
 
     return { 
@@ -265,8 +274,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
         projectedRevenue,
         totalDebt,
         inventoryValue,
+        inventoryRetailValue, // Exported
         lowStockCount,
-        todaySales
+        todaySales,
+        todayPayments, // Exported for Modal
+        todayCashSales, // Exported for Modal
+        todayCreditSales // Exported for Modal
     };
   };
 
@@ -329,7 +342,57 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
       return breakdown.sort((a,b) => b.profit - a.profit);
   };
 
+  // --- Logic for Pending Profit Detail ---
+  const getPendingProfitBreakdown = () => {
+      return financials.todayCreditSales.map(sale => {
+          let totalCost = 0;
+          sale.items.forEach(item => {
+              const prod = products.find(p => p.id === item.productId);
+              // Si el producto existe usamos su costo, si no, estimamos 70% del precio
+              totalCost += prod ? (prod.cost * item.quantity) : (item.subtotal * 0.7);
+          });
+          return {
+              id: sale.id,
+              clientName: sale.clientName,
+              revenue: sale.totalAmount,
+              cost: totalCost,
+              profit: sale.totalAmount - totalCost
+          };
+      }).sort((a, b) => b.profit - a.profit);
+  };
+
+  // --- Logic for Total Debt Detail ---
+  const getDebtorsList = () => {
+      return clients
+        .filter(c => c.debt > 0)
+        .sort((a, b) => b.debt - a.debt);
+  };
+
+  // --- Logic for Inventory (Cost) Detail ---
+  const getInventoryList = () => {
+      return products
+        .map(p => ({
+            ...p,
+            totalValue: p.cost * p.stock
+        }))
+        .sort((a, b) => b.totalValue - a.totalValue);
+  };
+
+  // --- Logic for Inventory (Retail) Detail ---
+  const getInventoryRetailList = () => {
+      return products
+        .map(p => ({
+            ...p,
+            totalRetailValue: p.priceRetail * p.stock
+        }))
+        .sort((a, b) => b.totalRetailValue - a.totalRetailValue);
+  };
+
   const profitBreakdown = getDailyProfitBreakdown();
+  const pendingProfitBreakdown = getPendingProfitBreakdown();
+  const debtorsList = getDebtorsList();
+  const inventoryList = getInventoryList();
+  const inventoryRetailList = getInventoryRetailList(); // NEW
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans text-gray-900">
@@ -407,8 +470,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
             
             {/* --- Section 1: The "Big 3" Cards --- */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                 {/* CARD 1: CASH FLOW */}
-                 <div className="bg-gray-900 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group">
+                 {/* CARD 1: CASH FLOW (CLICKABLE) */}
+                 <div 
+                    onClick={() => setShowCashFlowDetail(true)}
+                    className="bg-gray-900 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group cursor-pointer hover:scale-[1.01] transition-all"
+                 >
                     <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform"><DollarSign size={80}/></div>
                     <div>
                         <div className="flex items-center gap-2 text-bakery-400 mb-1">
@@ -416,12 +482,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                             <span className="text-xs font-bold uppercase tracking-wider">Dinero en Caja (Hoy)</span>
                         </div>
                         <h3 className="text-4xl font-bold tracking-tight">${financials.todayTotalCashInHand.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        <p className="text-sm text-gray-400 mt-1">Ventas Contado + Cobros Deuda</p>
+                        <p className="text-sm text-gray-400 mt-1 flex items-center gap-1">Ventas Contado + Cobros Deuda <ArrowRight size={14}/></p>
                     </div>
                  </div>
 
-                 {/* CARD 2: CREDIT DISPATCHES */}
-                 <div className="bg-blue-600 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group">
+                 {/* CARD 2: CREDIT DISPATCHES (CLICKABLE) */}
+                 <div 
+                    onClick={() => setShowCreditDetail(true)}
+                    className="bg-blue-600 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group cursor-pointer hover:scale-[1.01] transition-all"
+                 >
                     <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform"><Truck size={80}/></div>
                     <div>
                         <div className="flex items-center gap-2 text-blue-200 mb-1">
@@ -429,11 +498,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                             <span className="text-xs font-bold uppercase tracking-wider">Despachos a Crédito (Hoy)</span>
                         </div>
                         <h3 className="text-4xl font-bold tracking-tight">${financials.todayCreditRevenue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        <p className="text-sm text-blue-100 mt-1">Mercancía entregada por cobrar</p>
+                        <p className="text-sm text-blue-100 mt-1 flex items-center gap-1">Mercancía entregada por cobrar <ArrowRight size={14}/></p>
                     </div>
                  </div>
 
-                 {/* CARD 3: LIQUID PROFIT */}
+                 {/* CARD 3: LIQUID PROFIT (CLICKABLE) */}
                  <div 
                     onClick={() => setShowProfitDetail(true)}
                     className="bg-emerald-600 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between h-48 group cursor-pointer hover:shadow-2xl hover:scale-[1.01] transition-all"
@@ -455,53 +524,81 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                  </div>
             </div>
 
-            {/* --- Section 2: Secondary Stats --- */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-start hover:shadow-md transition-shadow">
-                    <div className="flex flex-col h-full justify-between">
+            {/* --- Section 2: Secondary Stats (Updated to 4 cards) --- */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div 
+                    onClick={() => setShowPendingProfitDetail(true)}
+                    className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-md transition-all cursor-pointer group h-full"
+                >
+                    <div className="flex justify-between items-start mb-2">
                         <div>
-                            <p className="text-gray-500 text-xs font-bold uppercase mb-1">Ganancia Por Cobrar</p>
-                            <h3 className="text-4xl font-bold text-blue-600 tracking-tight">${financials.todayCreditProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                            <p className="text-gray-500 text-xs font-bold uppercase mb-1 flex items-center gap-1 group-hover:text-blue-600 transition-colors">
+                                Ganancia Por Cobrar <ArrowRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity"/>
+                            </p>
+                            <h3 className="text-3xl font-bold text-blue-600 tracking-tight">${financials.todayCreditProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
                         </div>
-                        <p className="text-xs text-gray-400 mt-2">Estimada en despachos de hoy</p>
+                        <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-100 transition-colors">
+                            <TrendingUp size={24} />
+                        </div>
                     </div>
-                    <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-                        <TrendingUp size={24} />
-                    </div>
+                    <p className="text-xs text-gray-400">Estimada en despachos de hoy</p>
                 </div>
 
                 <div 
-                    onClick={() => setActiveTab('clients')}
-                    className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-start cursor-pointer hover:shadow-md transition-shadow"
+                    onClick={() => setShowTotalDebtDetail(true)}
+                    className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-md transition-all cursor-pointer group h-full"
                 >
-                    <div className="flex flex-col h-full justify-between">
-                        <div>
-                            <p className="text-gray-500 text-xs font-bold uppercase mb-1">Total Cuentas por Cobrar</p>
-                            <h3 className="text-4xl font-bold text-red-600 tracking-tight">${financials.totalDebt.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                    <div className="flex justify-between items-start mb-2">
+                         <div>
+                            <p className="text-gray-500 text-xs font-bold uppercase mb-1 flex items-center gap-1 group-hover:text-red-600 transition-colors">
+                                Total Cuentas por Cobrar <ArrowRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity"/>
+                            </p>
+                            <h3 className="text-3xl font-bold text-red-600 tracking-tight">${financials.totalDebt.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
                         </div>
-                        <p className="text-xs text-gray-400 mt-2">Capital pendiente acumulado</p>
+                        <div className="p-3 bg-red-50 text-red-600 rounded-xl group-hover:bg-red-100 transition-colors">
+                            <Coins size={24} />
+                        </div>
                     </div>
-                    <div className="p-3 bg-red-50 text-red-600 rounded-xl">
-                        <Coins size={24} />
-                    </div>
+                    <p className="text-xs text-gray-400">Capital pendiente acumulado</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
-                            <Warehouse size={20} />
+                <div 
+                    onClick={() => setShowInventoryDetail(true)}
+                    className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-md transition-all cursor-pointer group h-full"
+                >
+                    <div className="flex justify-between items-start mb-2">
+                         <div>
+                            <p className="text-gray-500 text-xs font-bold uppercase mb-1 flex items-center gap-1 group-hover:text-blue-700 transition-colors">
+                                Inventario (Costo)
+                            </p>
+                            <h3 className="text-3xl font-bold text-blue-900 tracking-tight">${financials.inventoryValue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
                         </div>
-                        <div>
-                            <h3 className="font-bold text-gray-900 leading-tight">Inventario</h3>
-                            <p className="text-xs text-gray-500">Valor al costo</p>
+                        <div className="p-3 bg-blue-100 text-blue-700 rounded-xl group-hover:bg-blue-200 transition-colors">
+                            <Warehouse size={24} />
                         </div>
                     </div>
-                    <div>
-                        <h3 className="text-4xl font-bold text-blue-900 tracking-tight mb-2">${financials.inventoryValue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        <span className={`text-xs font-bold px-3 py-1 rounded-md ${financials.lowStockCount > 0 ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                            {financials.lowStockCount} alertas de stock
-                        </span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 w-fit rounded-md ${financials.lowStockCount > 0 ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                        {financials.lowStockCount} alertas stock
+                    </span>
+                </div>
+
+                {/* NEW CARD: INVENTORY RETAIL VALUE */}
+                <div 
+                    onClick={() => setShowInventoryRetailDetail(true)}
+                    className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-md transition-all cursor-pointer group h-full"
+                >
+                    <div className="flex justify-between items-start mb-2">
+                         <div>
+                            <p className="text-gray-500 text-xs font-bold uppercase mb-1 flex items-center gap-1 group-hover:text-purple-600 transition-colors">
+                                Inventario (Venta) <ArrowRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity"/>
+                            </p>
+                            <h3 className="text-3xl font-bold text-purple-600 tracking-tight">${financials.inventoryRetailValue.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
+                        </div>
+                        <div className="p-3 bg-purple-50 text-purple-600 rounded-xl group-hover:bg-purple-100 transition-colors">
+                            <Tag size={24} />
+                        </div>
                     </div>
+                    <p className="text-xs text-gray-400">Ingreso potencial bruto</p>
                 </div>
             </div>
 
@@ -528,6 +625,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
             <SalesAnalytics sales={sales} products={products} settings={settings} onRefresh={loadData} />
         )}
 
+        {/* ... (Rest of tabs and content) ... */}
+        {/* ... [Kept content for simulation, inventory, clients, logs] ... */}
         {/* --- RESTORED ORIGINAL (SIMPLE) SIMULATION PANEL --- */}
         {activeTab === 'simulation' && (
             <div className="animate-in fade-in duration-500 space-y-6">
@@ -631,7 +730,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
             </div>
         )}
 
-        {/* ... (Inventory, Clients, Logs, Settings kept same) ... */}
         {activeTab === 'inventory' && (
             // ... content ...
             <div className="animate-in fade-in duration-500">
@@ -780,19 +878,144 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
         )}
       </main>
 
-      {/* ... Settings, Chat, Modals ... */}
-      {/* PROFIT DETAIL MODAL UPDATED */}
+      {/* --- MODAL 1: CASH FLOW DETAILS --- */}
+      {showCashFlowDetail && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
+                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-900 text-white rounded-t-2xl">
+                    <div>
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <Activity size={20} /> Dinero en Caja (Entradas)
+                        </h2>
+                        <p className="text-xs text-gray-400">Desglose de ingresos físicos de hoy.</p>
+                    </div>
+                    <button onClick={() => setShowCashFlowDetail(false)} className="p-2 bg-white/10 rounded-full hover:bg-white/20">
+                        <X size={20} />
+                    </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-0">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-50 sticky top-0 shadow-sm z-10 text-gray-500 text-xs uppercase">
+                            <tr>
+                                <th className="px-6 py-3 font-bold">Concepto</th>
+                                <th className="px-6 py-3 font-bold text-right">Monto</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {/* Line 1: Summary of POS Sales */}
+                            <tr className="bg-orange-50/50">
+                                <td className="px-6 py-4">
+                                    <p className="font-bold text-gray-900">Ventas Mostrador (Global)</p>
+                                    <p className="text-xs text-gray-500">{financials.todayCashSales.length} transacciones de contado</p>
+                                </td>
+                                <td className="px-6 py-4 text-right font-bold text-gray-900">
+                                    ${(financials.todayTotalCashInHand - financials.todayDebtCollection).toFixed(2)}
+                                </td>
+                            </tr>
+                            {/* Line 2+: Specific Debt Payments */}
+                            {financials.todayPayments.length === 0 ? (
+                                <tr>
+                                    <td colSpan={2} className="px-6 py-4 text-center text-gray-400 italic text-xs">
+                                        No se han recibido abonos de clientes hoy.
+                                    </td>
+                                </tr>
+                            ) : (
+                                financials.todayPayments.map(pay => {
+                                    const clientName = clients.find(c => c.id === pay.clientId)?.businessName || 'Cliente';
+                                    return (
+                                        <tr key={pay.id} className="hover:bg-gray-50">
+                                            <td className="px-6 py-3">
+                                                <p className="font-bold text-gray-800">Abono: {clientName}</p>
+                                                {pay.note && <p className="text-xs text-gray-500 italic">"{pay.note}"</p>}
+                                                <p className="text-[10px] text-gray-400">{new Date(pay.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                            </td>
+                                            <td className="px-6 py-3 text-right font-medium text-blue-600">
+                                                +${pay.amount.toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="p-4 bg-gray-50 border-t border-gray-200 rounded-b-2xl flex justify-between items-center">
+                     <span className="font-bold text-gray-500 uppercase text-xs">Total Caja</span>
+                     <span className="font-bold text-2xl text-gray-900">${financials.todayTotalCashInHand.toFixed(2)}</span>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* --- MODAL 2: CREDIT DISPATCH DETAILS --- */}
+      {showCreditDetail && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
+                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-blue-600 text-white rounded-t-2xl">
+                    <div>
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <Truck size={20} /> Despachos a Crédito
+                        </h2>
+                        <p className="text-xs text-blue-100">Mercancía entregada pendiente de cobro hoy.</p>
+                    </div>
+                    <button onClick={() => setShowCreditDetail(false)} className="p-2 bg-white/10 rounded-full hover:bg-white/20">
+                        <X size={20} />
+                    </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-0">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-50 sticky top-0 shadow-sm z-10 text-gray-500 text-xs uppercase">
+                            <tr>
+                                <th className="px-6 py-3 font-bold">Cliente / Factura</th>
+                                <th className="px-6 py-3 font-bold text-right">Monto</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {financials.todayCreditSales.length === 0 ? (
+                                <tr>
+                                    <td colSpan={2} className="px-6 py-8 text-center text-gray-400 italic">
+                                        No hay despachos a crédito registrados hoy.
+                                    </td>
+                                </tr>
+                            ) : (
+                                financials.todayCreditSales.map(sale => (
+                                    <tr key={sale.id} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4">
+                                            <p className="font-bold text-gray-800">{sale.clientName}</p>
+                                            <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                                                <span className="font-mono bg-gray-100 px-1 rounded">#{sale.id.slice(0,6)}</span>
+                                                <span>• {sale.items.length} productos</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-right font-bold text-blue-600">
+                                            ${sale.totalAmount.toFixed(2)}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+                 <div className="p-4 bg-gray-50 border-t border-gray-200 rounded-b-2xl flex justify-between items-center">
+                     <span className="font-bold text-gray-500 uppercase text-xs">Total por Cobrar</span>
+                     <span className="font-bold text-2xl text-blue-600">${financials.todayCreditRevenue.toFixed(2)}</span>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* --- MODAL 3: PROFIT DETAIL (Existing Updated) --- */}
       {showProfitDetail && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
-                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
+                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-emerald-600 text-white rounded-t-2xl">
                     <div>
-                        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                            <Wallet className="text-emerald-600" /> Ganancia Líquida (Realizada)
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <Wallet size={20} /> Ganancia Líquida (Realizada)
                         </h2>
-                        <p className="text-sm text-gray-500">Incluye mostrador y cobros de deuda recibidos hoy.</p>
+                        <p className="text-xs text-emerald-100">Incluye mostrador y cobros de deuda recibidos hoy.</p>
                     </div>
-                    <button onClick={() => setShowProfitDetail(false)} className="p-2 bg-gray-200 rounded-full hover:bg-gray-300">
+                    <button onClick={() => setShowProfitDetail(false)} className="p-2 bg-white/10 rounded-full hover:bg-white/20">
                         <X size={20} />
                     </button>
                 </div>
@@ -841,14 +1064,275 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                     </table>
                 </div>
 
-                <div className="p-6 bg-gray-900 text-white rounded-b-2xl shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] flex justify-between items-center z-20">
+                <div className="p-6 bg-gray-50 text-gray-900 border-t border-gray-200 rounded-b-2xl flex justify-between items-center z-20">
                     <div>
                         <p className="text-gray-400 text-xs uppercase font-bold tracking-widest">Total Líquido</p>
-                        <p className="text-sm opacity-80">{new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
                     </div>
                     <div className="text-right">
-                        <p className="text-3xl font-bold text-emerald-400">${financials.todayTotalLiquidProfit.toFixed(2)}</p>
-                        <p className="text-xs text-emerald-200">Ganancia en Mano</p>
+                        <p className="text-3xl font-bold text-emerald-600">${financials.todayTotalLiquidProfit.toFixed(2)}</p>
+                        <p className="text-xs text-emerald-600">Ganancia en Mano</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* --- MODAL 4: PENDING PROFIT (NEW) --- */}
+      {showPendingProfitDetail && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
+                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-blue-600 text-white rounded-t-2xl">
+                    <div>
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <TrendingUp size={20} /> Ganancia Por Cobrar (Hoy)
+                        </h2>
+                        <p className="text-xs text-blue-100">Margen de ganancia estimado en despachos entregados hoy.</p>
+                    </div>
+                    <button onClick={() => setShowPendingProfitDetail(false)} className="p-2 bg-white/10 rounded-full hover:bg-white/20">
+                        <X size={20} />
+                    </button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-0">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-white sticky top-0 shadow-sm z-10">
+                            <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                                <th className="px-6 py-4 font-bold bg-white">Factura / Cliente</th>
+                                <th className="px-6 py-4 font-bold text-right bg-white">Venta Total</th>
+                                <th className="px-6 py-4 font-bold text-right bg-white text-gray-500">Costo Real</th>
+                                <th className="px-6 py-4 font-bold text-right bg-white text-blue-700">Ganancia Est.</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {pendingProfitBreakdown.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} className="text-center py-12 text-gray-400">
+                                        No hay despachos a crédito hoy.
+                                    </td>
+                                </tr>
+                            ) : (
+                                pendingProfitBreakdown.map((item, idx) => (
+                                    <tr key={idx} className="hover:bg-gray-50/50">
+                                        <td className="px-6 py-4">
+                                            <p className="font-bold text-gray-800">{item.clientName}</p>
+                                            <span className="font-mono text-xs text-gray-400">#{item.id.slice(0,6)}</span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right font-medium text-gray-800">
+                                            ${item.revenue.toFixed(2)}
+                                        </td>
+                                        <td className="px-6 py-4 text-right text-gray-500">
+                                            -${item.cost.toFixed(2)}
+                                        </td>
+                                        <td className="px-6 py-4 text-right font-bold text-blue-600 bg-blue-50/30">
+                                            +${item.profit.toFixed(2)}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div className="p-6 bg-gray-50 text-gray-900 border-t border-gray-200 rounded-b-2xl flex justify-between items-center z-20">
+                    <div>
+                        <p className="text-gray-400 text-xs uppercase font-bold tracking-widest">Total Ganancia Estimada</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-3xl font-bold text-blue-600">${financials.todayCreditProfit.toFixed(2)}</p>
+                        <p className="text-xs text-blue-500">Pendiente de cobro</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* --- MODAL 5: TOTAL DEBT DETAIL (NEW) --- */}
+      {showTotalDebtDetail && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
+                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-red-600 text-white rounded-t-2xl">
+                    <div>
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <Coins size={20} /> Cuentas Por Cobrar
+                        </h2>
+                        <p className="text-xs text-red-100">Listado de clientes con saldo pendiente.</p>
+                    </div>
+                    <button onClick={() => setShowTotalDebtDetail(false)} className="p-2 bg-white/10 rounded-full hover:bg-white/20">
+                        <X size={20} />
+                    </button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-0">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-50 sticky top-0 shadow-sm z-10 text-gray-500 text-xs uppercase">
+                            <tr>
+                                <th className="px-6 py-3 font-bold">Cliente</th>
+                                <th className="px-6 py-3 font-bold text-right">Deuda Actual</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {debtorsList.length === 0 ? (
+                                <tr>
+                                    <td colSpan={2} className="px-6 py-12 text-center text-gray-400 italic">
+                                        ¡Excelente! Nadie debe dinero.
+                                    </td>
+                                </tr>
+                            ) : (
+                                debtorsList.map(client => (
+                                    <tr key={client.id} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4">
+                                            <p className="font-bold text-gray-800">{client.businessName}</p>
+                                            <p className="text-xs text-gray-500">{client.name}</p>
+                                        </td>
+                                        <td className="px-6 py-4 text-right font-bold text-red-600">
+                                            ${client.debt.toFixed(2)}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="p-4 bg-gray-50 border-t border-gray-200 rounded-b-2xl flex justify-between items-center">
+                     <span className="font-bold text-gray-500 uppercase text-xs">Deuda Total</span>
+                     <span className="font-bold text-2xl text-red-600">${financials.totalDebt.toFixed(2)}</span>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* --- MODAL 6: INVENTORY COST DETAIL --- */}
+      {showInventoryDetail && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
+                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-blue-800 text-white rounded-t-2xl">
+                    <div>
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <Warehouse size={20} /> Valor de Inventario (Costo)
+                        </h2>
+                        <p className="text-xs text-blue-200">Valorización de existencias al costo actual.</p>
+                    </div>
+                    <button onClick={() => setShowInventoryDetail(false)} className="p-2 bg-white/10 rounded-full hover:bg-white/20">
+                        <X size={20} />
+                    </button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-0">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-white sticky top-0 shadow-sm z-10">
+                            <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                                <th className="px-6 py-4 font-bold bg-white">Producto</th>
+                                <th className="px-6 py-4 font-bold text-center bg-white">Existencia</th>
+                                <th className="px-6 py-4 font-bold text-right bg-white text-gray-500">Costo Unit.</th>
+                                <th className="px-6 py-4 font-bold text-right bg-white text-blue-800">Valor Total</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {inventoryList.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} className="text-center py-12 text-gray-400">
+                                        Inventario vacío.
+                                    </td>
+                                </tr>
+                            ) : (
+                                inventoryList.map(p => (
+                                    <tr key={p.id} className="hover:bg-gray-50/50">
+                                        <td className="px-6 py-4 font-medium text-gray-800">
+                                            {p.name}
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className={`px-2 py-1 rounded-md text-xs font-bold ${p.stock < 20 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-700'}`}>
+                                                {p.stock}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right text-gray-500">
+                                            ${p.cost.toFixed(2)}
+                                        </td>
+                                        <td className="px-6 py-4 text-right font-bold text-blue-800 bg-blue-50/30">
+                                            ${p.totalValue.toFixed(2)}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div className="p-6 bg-gray-50 text-gray-900 border-t border-gray-200 rounded-b-2xl flex justify-between items-center z-20">
+                    <div>
+                        <p className="text-gray-400 text-xs uppercase font-bold tracking-widest">Valor Total Activos</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-3xl font-bold text-blue-900">${financials.inventoryValue.toFixed(2)}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* --- MODAL 7: INVENTORY RETAIL DETAIL (NEW) --- */}
+      {showInventoryRetailDetail && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
+                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-purple-600 text-white rounded-t-2xl">
+                    <div>
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <Tag size={20} /> Inventario (Valor Venta)
+                        </h2>
+                        <p className="text-xs text-purple-100">Ingreso potencial si se vende todo el stock actual.</p>
+                    </div>
+                    <button onClick={() => setShowInventoryRetailDetail(false)} className="p-2 bg-white/10 rounded-full hover:bg-white/20">
+                        <X size={20} />
+                    </button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-0">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-white sticky top-0 shadow-sm z-10">
+                            <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                                <th className="px-6 py-4 font-bold bg-white">Producto</th>
+                                <th className="px-6 py-4 font-bold text-center bg-white">Existencia</th>
+                                <th className="px-6 py-4 font-bold text-right bg-white text-gray-500">Precio Venta</th>
+                                <th className="px-6 py-4 font-bold text-right bg-white text-purple-700">Total Potencial</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {inventoryRetailList.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} className="text-center py-12 text-gray-400">
+                                        Inventario vacío.
+                                    </td>
+                                </tr>
+                            ) : (
+                                inventoryRetailList.map(p => (
+                                    <tr key={p.id} className="hover:bg-gray-50/50">
+                                        <td className="px-6 py-4 font-medium text-gray-800">
+                                            {p.name}
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className={`px-2 py-1 rounded-md text-xs font-bold ${p.stock < 20 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-700'}`}>
+                                                {p.stock}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right text-gray-500">
+                                            ${p.priceRetail.toFixed(2)}
+                                        </td>
+                                        <td className="px-6 py-4 text-right font-bold text-purple-700 bg-purple-50/30">
+                                            ${p.totalRetailValue.toFixed(2)}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div className="p-6 bg-gray-50 text-gray-900 border-t border-gray-200 rounded-b-2xl flex justify-between items-center z-20">
+                    <div>
+                        <p className="text-gray-400 text-xs uppercase font-bold tracking-widest">Ingreso Bruto Potencial</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-3xl font-bold text-purple-600">${financials.inventoryRetailValue.toFixed(2)}</p>
                     </div>
                 </div>
             </div>
