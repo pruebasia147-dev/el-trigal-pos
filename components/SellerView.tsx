@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { db } from '../services/db';
 import { AppSettings, CartItem, Client, Product, Sale, SaleItem, SuspendedSale, User } from '../types';
@@ -79,6 +80,18 @@ const SellerView: React.FC<SellerViewProps> = ({ user, onLogout }) => {
     setCart(prev => prev.map(item => {
       if (item.id === id) {
         const newQty = Math.max(0, item.quantity + delta);
+        return { ...item, quantity: newQty };
+      }
+      return item;
+    }).filter(item => item.quantity > 0));
+  };
+
+  const setCartItemQty = (id: string, qty: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === id) {
+        // Allow updating to exact quantity, respecting stock if needed (or allow override)
+        // Here we strictly follow stock for safety
+        const newQty = Math.max(0, Math.min(qty, item.stock));
         return { ...item, quantity: newQty };
       }
       return item;
@@ -302,6 +315,7 @@ const SellerView: React.FC<SellerViewProps> = ({ user, onLogout }) => {
               <CartContent 
                 cart={cart} 
                 onUpdateQty={updateCartQty} 
+                onSetQty={setCartItemQty}
                 total={cartTotal} 
                 settings={settings} 
                 onCheckout={() => setShowPaymentModal(true)}
@@ -329,7 +343,8 @@ const SellerView: React.FC<SellerViewProps> = ({ user, onLogout }) => {
                       <div className="flex-1 overflow-hidden">
                         <CartContent 
                             cart={cart} 
-                            onUpdateQty={updateCartQty} 
+                            onUpdateQty={updateCartQty}
+                            onSetQty={setCartItemQty}
                             total={cartTotal} 
                             settings={settings} 
                             onCheckout={() => setShowPaymentModal(true)}
@@ -376,6 +391,7 @@ const SellerView: React.FC<SellerViewProps> = ({ user, onLogout }) => {
       </main>
 
       {/* Suspended Sales Modal */}
+      {/* ... (Existing modal code unchanged) ... */}
       {showSuspendedModal && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
              <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-in zoom-in duration-200 flex flex-col max-h-[80vh]">
@@ -466,7 +482,8 @@ const SellerView: React.FC<SellerViewProps> = ({ user, onLogout }) => {
         </div>
       )}
 
-      {/* Sales History Modal - MODIFIED FOR DETAIL VIEW */}
+      {/* Sales History Modal */}
+      {/* ... (Existing modal code unchanged) ... */}
       {showHistoryModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl animate-in zoom-in duration-200">
@@ -554,15 +571,16 @@ const SellerView: React.FC<SellerViewProps> = ({ user, onLogout }) => {
 };
 
 // Extracted Cart Component for re-use in Sidebar (Desktop) and Modal (Mobile)
-// UPDATED: Added Pause Button
+// UPDATED: Manual Input for Quantity
 const CartContent: React.FC<{
   cart: CartItem[];
   onUpdateQty: (id: string, d: number) => void;
+  onSetQty: (id: string, q: number) => void;
   total: number;
   settings: AppSettings;
   onCheckout: () => void;
   onSuspend: () => void;
-}> = ({ cart, onUpdateQty, total, settings, onCheckout, onSuspend }) => {
+}> = ({ cart, onUpdateQty, onSetQty, total, settings, onCheckout, onSuspend }) => {
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
       {/* Scrollable Item List */}
@@ -579,14 +597,21 @@ const CartContent: React.FC<{
                 <p className="font-bold text-sm text-gray-800 truncate">{item.name}</p>
                 <p className="text-xs text-gray-500">${item.priceRetail.toFixed(2)} c/u</p>
               </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => onUpdateQty(item.id, -1)} className="w-7 h-7 flex items-center justify-center rounded bg-white border border-gray-200 shadow-sm active:bg-gray-100">
+              <div className="flex items-center gap-1">
+                <button onClick={() => onUpdateQty(item.id, -1)} className="w-8 h-8 flex items-center justify-center rounded bg-white border border-gray-200 shadow-sm active:bg-gray-100">
                   {item.quantity === 1 ? <Trash2 size={14} className="text-red-500"/> : <Minus size={14} />}
                 </button>
-                <span className="font-mono w-6 text-center text-sm font-bold">{item.quantity}</span>
+                <input 
+                    type="number"
+                    className="w-12 h-8 text-center text-sm font-bold border border-gray-300 rounded mx-1 focus:ring-2 focus:ring-bakery-500 outline-none bg-white text-gray-900"
+                    value={item.quantity > 0 ? item.quantity : ''}
+                    placeholder="0"
+                    onChange={(e) => onSetQty(item.id, parseInt(e.target.value) || 0)}
+                    onFocus={(e) => e.target.select()}
+                />
                 <button 
                   onClick={() => onUpdateQty(item.id, 1)} 
-                  className="w-7 h-7 flex items-center justify-center rounded bg-bakery-500 text-white shadow-sm active:scale-95 disabled:bg-gray-300" 
+                  className="w-8 h-8 flex items-center justify-center rounded bg-bakery-500 text-white shadow-sm active:scale-95 disabled:bg-gray-300" 
                   disabled={item.quantity >= item.stock}
                 >
                   <Plus size={14} />

@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Client, Product, SaleItem } from '../types';
 import { ChevronDown, ChevronUp, Truck, CheckCircle, AlertCircle, X } from 'lucide-react';
@@ -27,6 +28,14 @@ export const DispatchClientCard: React.FC<DispatchClientCardProps> = ({
       const next = Math.max(0, current + delta);
       return { ...prev, [productId]: next };
     });
+  };
+
+  // Helper: Manual Set
+  const setQty = (productId: string, val: number) => {
+      setQuantities(prev => ({
+          ...prev,
+          [productId]: Math.max(0, val)
+      }));
   };
 
   // Helper: Calculate Total for this specific client session
@@ -131,7 +140,14 @@ export const DispatchClientCard: React.FC<DispatchClientCardProps> = ({
                       className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 font-bold active:scale-95 transition-transform"
                       disabled={qty === 0}
                     >-</button>
-                    <span className="w-6 text-center font-bold text-lg">{qty}</span>
+                    <input 
+                        type="number"
+                        className="w-14 h-9 text-center font-bold text-lg border border-gray-300 rounded focus:ring-2 focus:ring-bakery-500 outline-none bg-white text-gray-900"
+                        value={qty > 0 ? qty : ''}
+                        placeholder="0"
+                        onChange={(e) => setQty(product.id, parseInt(e.target.value) || 0)}
+                        onFocus={e => e.target.select()}
+                    />
                     <button 
                       onClick={() => updateQty(product.id, 1)}
                       className="w-8 h-8 flex items-center justify-center rounded-lg bg-bakery-500 text-white hover:bg-bakery-600 font-bold shadow-sm active:scale-95 transition-transform disabled:bg-gray-300"
