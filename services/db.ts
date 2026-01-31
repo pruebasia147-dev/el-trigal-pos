@@ -124,29 +124,42 @@ class DBService {
     const { data: client } = await this.supabase.from('clients').select('*').eq('id', clientId).single();
     if (!client) throw new Error("Cliente no encontrado");
     
-    // 1. Registrar el pago en la tabla histórica (Nueva tabla 'payments')
-    // IMPORTANTE: La fecha debe ser NEW DATE().toISOString() para asegurar compatibilidad con filtros del dashboard
-    const payment: Payment = {
-        id: this.generateId(),
-        clientId,
-        amount,
-        date: new Date().toISOString(), 
-        note
-    };
-    
-    const { error } = await this.supabase.from('payments').insert(payment);
-    if (error) throw error;
-
-    // 2. Actualizar la deuda del cliente
+    // 1. Actualizar la deuda del cliente PRIMERO (Lo más importante para el usuario)
     const newDebt = Math.max(0, client.debt - amount);
-    await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
+    const { error: clientError } = await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
+    
+    if (clientError) throw clientError; // Si falla esto, sí lanzamos error y paramos.
+
+    // 2. Registrar el pago en la tabla histórica (Nueva tabla 'payments')
+    // Intentamos registrarlo para el Dashboard. Si falla (ej: no existe la tabla), NO lanzamos error para no bloquear al usuario.
+    try {
+        const payment: Payment = {
+            id: this.generateId(),
+            clientId,
+            amount,
+            date: new Date().toISOString(), 
+            note
+        };
+        
+        const { error: insertError } = await this.supabase.from('payments').insert(payment);
+        if (insertError) {
+            console.warn("⚠️ Advertencia: No se pudo guardar en historial de pagos (Posible falta de tabla 'payments'). El abono se aplicó a la cuenta pero no saldrá en el dashboard hoy.", insertError.message);
+        }
+    } catch (e) {
+        console.warn("Error no bloqueante guardando historial de pagos:", e);
+    }
 
     await this.logAction('PAGO CLIENTE', `Cobro de $${amount} al cliente ${client.businessName}. Nota: ${note}`);
   }
 
   async getPayments(): Promise<Payment[]> {
       // Obtenemos los últimos 200 pagos ordenados por fecha descendente
-      const { data } = await this.supabase.from('payments').select('*').order('date', { ascending: false }).limit(200);
+      // Si la tabla no existe, devuelve error, capturamos y devolvemos array vacío para no romper el dashboard
+      const { data, error } = await this.supabase.from('payments').select('*').order('date', { ascending: false }).limit(200);
+      if (error) {
+          console.warn("No se pudo obtener pagos (¿Tabla 'payments' existe?)", error.message);
+          return [];
+      }
       return data || [];
   }
 
