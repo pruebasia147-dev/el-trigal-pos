@@ -134,6 +134,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
     };
   }, [saleToPrint]);
 
+  // Handle Smart Share (WhatsApp Image) - PROFESSIONAL UPDATE
   const handleSmartShare = async () => {
       const element = document.getElementById('receipt-capture-area');
       if (!element) return;
@@ -142,7 +143,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
 
       try {
           const canvas = await html2canvas(element, {
-              scale: 6, 
+              scale: 4, // Optimal scale
               backgroundColor: '#ffffff',
               logging: false,
               useCORS: true,
@@ -150,36 +151,50 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
           });
 
           canvas.toBlob(async (blob) => {
-              if (!blob) {
-                  setIsCapturing(false);
+              setIsCapturing(false);
+              if (!blob) return;
+
+              const fileName = `recibo-${selectedSale?.id.slice(0,6)}.png`;
+              const file = new File([blob], fileName, { type: "image/png" });
+              const shareData = {
+                  files: [file],
+                  title: 'Comprobante de Pago',
+                  text: 'Adjunto comprobante de pago.'
+              };
+
+              // 1. Intento MÓVIL: Share API Nativa
+              if (navigator.canShare && navigator.canShare(shareData)) {
+                  try {
+                      await navigator.share(shareData);
+                  } catch (e) {
+                      console.log('Compartir cancelado', e);
+                  }
                   return;
               }
 
-              const file = new File([blob], `recibo-${selectedSale?.id.slice(0,6)}.png`, { type: "image/png" });
-              const shareText = `Comprobante de pago`;
-
-              if (navigator.share && navigator.canShare({ files: [file] })) {
-                  try {
-                      await navigator.share({
-                          files: [file],
-                          title: 'Comprobante de Pago',
-                          text: shareText
-                      });
-                  } catch (e) {
-                      console.log('User cancelled share');
+              // 2. Intento ESCRITORIO: Copiar al Portapapeles
+              try {
+                  if (typeof ClipboardItem !== "undefined") {
+                      await navigator.clipboard.write([
+                          new ClipboardItem({ [blob.type]: blob })
+                      ]);
+                      alert("✅ ¡Imagen copiada!\n\nVe a WhatsApp Web y presiona 'Ctrl + V' para pegar el recibo.");
+                      return;
                   }
-              } 
-              else {
-                  const link = document.createElement('a');
-                  link.href = canvas.toDataURL('image/png');
-                  link.download = `recibo-${selectedSale?.id.slice(0,6)}.png`;
-                  link.click();
+              } catch (err) {
+                  console.warn("Clipboard failed, falling back to download", err);
               }
-              setIsCapturing(false);
+
+              // 3. Respaldo FINAL: Descargar imagen
+              const link = document.createElement('a');
+              link.href = canvas.toDataURL('image/png');
+              link.download = fileName;
+              link.click();
+              alert("📥 Imagen descargada.\n\nPuedes adjuntarla manualmente en WhatsApp Web.");
           });
       } catch (error) {
           console.error("Error capturing receipt", error);
-          alert("No se pudo generar la imagen. Intente descargar el PDF.");
+          alert("No se pudo generar la imagen.");
           setIsCapturing(false);
       }
   };
