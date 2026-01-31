@@ -4,11 +4,12 @@ import { db } from '../services/db';
 import { AppSettings, Client, Product, Sale, AuditLog, Payment } from '../types';
 import SalesAnalytics from './SalesAnalytics';
 import ClientCRM from './ClientCRM';
+import html2canvas from 'html2canvas';
 import { 
   LayoutDashboard, Package, Users, Settings, LogOut, 
   TrendingUp, DollarSign, Edit, Menu, X, Plus, BarChart3, 
   Wallet, Activity, Calculator, Trash2,
-  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck, ArrowRight, Tag
+  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck, ArrowRight, Tag, Share2, Printer, Store as StoreIcon
 } from 'lucide-react';
 
 interface AdminProps {
@@ -59,6 +60,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   const [showInventoryDetail, setShowInventoryDetail] = useState(false);
   const [showInventoryRetailDetail, setShowInventoryRetailDetail] = useState(false); // NEW
 
+  // --- INVOICE VIEW STATE ---
+  const [selectedInvoice, setSelectedInvoice] = useState<Sale | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+
   // --- SIMPLE SIMULATION STATE ---
   const [simProducts, setSimProducts] = useState<SimProduct[]>([]);
   const [simExpenses, setSimExpenses] = useState<SimExpense[]>([
@@ -106,6 +111,71 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
           })));
       }
   }, [products]);
+
+  // --- HANDLE SMART SHARE (PC Compatible) ---
+  const handleSmartShare = async () => {
+      const element = document.getElementById('receipt-capture-area-admin');
+      if (!element) return;
+
+      setIsCapturing(true);
+
+      try {
+          const canvas = await html2canvas(element, {
+              scale: 4,
+              backgroundColor: '#ffffff',
+              logging: false,
+              useCORS: true,
+              allowTaint: true,
+          });
+
+          canvas.toBlob(async (blob) => {
+              setIsCapturing(false);
+              if (!blob) return;
+
+              const fileName = `recibo-${selectedInvoice?.id.slice(0,6)}.png`;
+              const file = new File([blob], fileName, { type: "image/png" });
+              const shareData = {
+                  files: [file],
+                  title: 'Comprobante de Pago',
+                  text: 'Adjunto comprobante de pago.'
+              };
+
+              // 1. Intento MÓVIL: Share API Nativa
+              if (navigator.canShare && navigator.canShare(shareData)) {
+                  try {
+                      await navigator.share(shareData);
+                  } catch (e) {
+                      console.log('Compartir cancelado', e);
+                  }
+                  return;
+              }
+
+              // 2. Intento PC: Copiar al Portapapeles (Ctrl+V en WhatsApp Web)
+              try {
+                  if (typeof ClipboardItem !== "undefined") {
+                      await navigator.clipboard.write([
+                          new ClipboardItem({ [blob.type]: blob })
+                      ]);
+                      alert("✅ ¡Imagen copiada!\n\nVe a WhatsApp Web y presiona 'Ctrl + V' en el chat.");
+                      return;
+                  }
+              } catch (err) {
+                  console.warn("Clipboard failed, falling back to download", err);
+              }
+
+              // 3. Respaldo FINAL: Descargar imagen
+              const link = document.createElement('a');
+              link.href = canvas.toDataURL('image/png');
+              link.download = fileName;
+              link.click();
+              alert("📥 Imagen descargada.\n\nEl navegador no permitió copiar directo. Adjunta la imagen descargada en WhatsApp.");
+          });
+      } catch (error) {
+          console.error("Error capturing receipt", error);
+          alert("No se pudo generar la imagen.");
+          setIsCapturing(false);
+      }
+  };
 
   // --- SIMPLE SIMULATION HANDLERS ---
   const updateSimQty = (id: string, qty: number) => {
@@ -957,7 +1027,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
         </div>
       )}
 
-      {/* --- MODAL 2: CREDIT DISPATCH DETAILS --- */}
+      {/* --- MODAL 2: CREDIT DISPATCH DETAILS (CLICKABLE ROWS ADDED) --- */}
       {showCreditDetail && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
@@ -973,6 +1043,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-0">
+                    <p className="p-4 text-xs text-gray-500 bg-blue-50 text-center">Haz clic en un cliente para ver la factura</p>
                     <table className="w-full text-left text-sm">
                         <thead className="bg-gray-50 sticky top-0 shadow-sm z-10 text-gray-500 text-xs uppercase">
                             <tr>
@@ -989,7 +1060,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                                 </tr>
                             ) : (
                                 financials.todayCreditSales.map(sale => (
-                                    <tr key={sale.id} className="hover:bg-gray-50">
+                                    <tr 
+                                        key={sale.id} 
+                                        onClick={() => setSelectedInvoice(sale)}
+                                        className="hover:bg-blue-50 cursor-pointer transition-colors active:bg-blue-100"
+                                    >
                                         <td className="px-6 py-4">
                                             <p className="font-bold text-gray-800">{sale.clientName}</p>
                                             <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
@@ -1344,6 +1419,115 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                     <div className="text-right">
                         <p className="text-3xl font-bold text-purple-600">${financials.inventoryRetailValue.toFixed(2)}</p>
                     </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* --- INVOICE VIEW MODAL --- */}
+      {selectedInvoice && (
+        <div className="print:hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
+            <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col h-auto max-h-[90vh]">
+                
+                {/* --- CAPTURE AREA START --- */}
+                <div id="receipt-capture-area-wrapper" className="flex-1 overflow-y-auto bg-white">
+                    <div id="receipt-capture-area-admin" className="bg-white antialiased">
+                        {/* Modal Header */}
+                        <div className="bg-gray-900 text-white p-6 pb-8">
+                            <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <StoreIcon size={20} className="text-bakery-400" />
+                                    <h3 className="font-bold text-lg tracking-wide">{settings.businessName || 'Mi Negocio'}</h3>
+                                </div>
+                                <button onClick={() => setSelectedInvoice(null)} className="p-1 bg-white/10 rounded-full hover:bg-white/20 transition-colors" data-html2canvas-ignore>
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <p className="text-gray-400 text-[10px] leading-tight opacity-80">{settings.rif} | {settings.address}</p>
+                        </div>
+
+                        {/* Receipt Body */}
+                        <div className="px-5 -mt-4">
+                            <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-4 mb-4">
+                                {/* Metadata */}
+                                <div className="border-b border-gray-100 pb-3 mb-3 space-y-2">
+                                    <div className="flex justify-between items-center text-sm">
+                                        <div>
+                                            <p className="font-bold text-gray-400 text-[10px] uppercase">Nº Operación</p>
+                                            <p className="font-bold text-gray-900">#{selectedInvoice.id.slice(0,6).toUpperCase()}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-bold text-gray-400 text-[10px] uppercase">Fecha</p>
+                                            <p className="font-bold text-gray-900">{new Date(selectedInvoice.date).toLocaleDateString()}</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <p className="font-bold text-gray-400 text-[10px] uppercase">Cliente</p>
+                                        <p className="font-bold text-bakery-700 text-sm">{selectedInvoice.clientName || 'Cliente Mostrador'}</p>
+                                        {selectedInvoice.type === 'dispatch' && (
+                                            <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold uppercase mt-1 inline-block">Crédito</span>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                {/* Items Table */}
+                                <table className="w-full mb-4">
+                                    <thead>
+                                        <tr className="text-[10px] text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                                            <th className="pb-1 font-bold text-left">Producto</th>
+                                            <th className="pb-1 font-bold text-center w-10">Cant</th>
+                                            <th className="pb-1 font-bold text-right w-16">Inv.</th>
+                                            <th className="pb-1 font-bold text-right w-16">Sub.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="text-xs">
+                                        {selectedInvoice.items.map((item, idx) => (
+                                            <tr key={idx} className="border-b border-gray-50 last:border-0">
+                                                <td className="py-2 text-gray-800 font-medium whitespace-normal pr-1 align-top leading-tight text-left">
+                                                    {item.productName}
+                                                </td>
+                                                <td className="py-2 font-bold text-gray-600 align-top text-center">{item.quantity}</td>
+                                                <td className="py-2 text-right text-gray-500 whitespace-nowrap align-top">
+                                                    ${item.unitPrice.toFixed(2)}
+                                                </td>
+                                                <td className="py-2 text-right font-bold text-gray-900 whitespace-nowrap align-top">
+                                                    ${item.subtotal.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+
+                                {/* Total */}
+                                <div className="bg-gray-50 p-3 rounded-lg flex justify-between items-center border border-gray-100">
+                                    <span className="font-bold text-gray-600 uppercase text-xs">Total</span>
+                                    <span className="text-xl font-extrabold text-bakery-600">${selectedInvoice.totalAmount.toFixed(2)}</span>
+                                </div>
+                            </div>
+                            <div className="text-center pb-6">
+                                <p className="font-bold text-gray-900">¡Gracias por su compra!</p>
+                                <p className="text-xs text-gray-500 mt-1">Vuelva pronto</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {/* --- CAPTURE AREA END --- */}
+
+                <div className="p-5 bg-gray-50 border-t border-gray-200 mt-auto flex-none">
+                    <button 
+                        onClick={handleSmartShare}
+                        disabled={isCapturing}
+                        className="w-full flex items-center justify-center gap-2 bg-green-600 text-white py-3.5 rounded-xl font-bold hover:bg-green-700 transition-all active:scale-95 shadow-lg shadow-green-200 mb-3"
+                    >
+                        {isCapturing ? 'Generando...' : (
+                            <>
+                                <Share2 size={18} />
+                                Compartir Imagen (WhatsApp)
+                            </>
+                        )}
+                    </button>
+                    <button onClick={() => setSelectedInvoice(null)} className="w-full text-gray-500 py-2 hover:bg-gray-200 rounded-lg transition-colors">Cerrar</button>
                 </div>
             </div>
         </div>
