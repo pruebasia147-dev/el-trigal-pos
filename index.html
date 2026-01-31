@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
   <head>
@@ -5,8 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Panadería El Trigal</title>
     
-    <!-- PWA Setup -->
-    <link rel="manifest" href="/manifest.json" />
+    <!-- PWA Setup handled by Vite Plugin now, but keeping meta for safety -->
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#ca8a04" />
     <meta name="description" content="Sistema de Punto de Venta y Gestión para Panadería El Trigal" />
 
@@ -63,7 +64,8 @@
     "vite": "https://esm.sh/vite@^7.3.1",
     "react/": "https://esm.sh/react@^19.2.4/",
     "react": "https://esm.sh/react@^19.2.4",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "vite-plugin-pwa": "https://esm.sh/vite-plugin-pwa@^0.19.2"
   }
 }
 </script>
