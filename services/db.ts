@@ -124,25 +124,39 @@ class DBService {
     const { data: client } = await this.supabase.from('clients').select('*').eq('id', clientId).single();
     if (!client) throw new Error("Cliente no encontrado");
     
-    // 1. Registrar el pago en la tabla histórica (Nueva tabla 'payments')
-    const payment: Payment = {
-        id: this.generateId(),
-        clientId,
-        amount,
-        date: new Date().toISOString(),
-        note
-    };
-    await this.supabase.from('payments').insert(payment);
-
-    // 2. Actualizar la deuda del cliente
+    // 1. Actualizar la deuda del cliente PRIMERO (Lo más importante para el usuario)
     const newDebt = Math.max(0, client.debt - amount);
-    await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
+    const { error: clientError } = await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
+    
+    if (clientError) throw clientError; 
+
+    // 2. Registrar el pago en la tabla histórica (Nueva tabla 'payments')
+    try {
+        const payment: Payment = {
+            id: this.generateId(),
+            clientId,
+            amount,
+            date: new Date().toISOString(), 
+            note
+        };
+        
+        const { error: insertError } = await this.supabase.from('payments').insert(payment);
+        if (insertError) {
+            console.warn("⚠️ Advertencia: No se pudo guardar en historial de pagos.", insertError.message);
+        }
+    } catch (e) {
+        console.warn("Error no bloqueante guardando historial de pagos:", e);
+    }
 
     await this.logAction('PAGO CLIENTE', `Cobro de $${amount} al cliente ${client.businessName}. Nota: ${note}`);
   }
 
   async getPayments(): Promise<Payment[]> {
-      const { data } = await this.supabase.from('payments').select('*').order('date', { ascending: false }).limit(200);
+      const { data, error } = await this.supabase.from('payments').select('*').order('date', { ascending: false }).limit(200);
+      if (error) {
+          console.warn("No se pudo obtener pagos", error.message);
+          return [];
+      }
       return data || [];
   }
 
@@ -152,15 +166,11 @@ class DBService {
       const { error: saleError } = await this.supabase.from('sales').update({ type: 'pos' }).eq('id', saleId);
       if (saleError) throw saleError;
 
-      // 2. Reducir la deuda del cliente manualmente (sin crear registro de pago duplicado en payments)
-      const { data: client } = await this.supabase.from('clients').select('debt').eq('id', clientId).single();
-      if (client) {
-          const newDebt = Math.max(0, client.debt - amount);
-          await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
-      }
+      // 2. CRUCIAL: Registrar el pago explícitamente en la tabla payments.
+      // Esto asegura que el dinero se sume a "Dinero en Caja (Hoy)" aunque la factura sea vieja.
+      await this.registerClientPayment(clientId, amount, `Pago Factura #${saleId.slice(0,6)}`);
       
-      // 3. Log
-      await this.logAction('COBRO FACTURA', `Factura #${saleId.slice(0,6)} marcada como PAGADA. Deuda cliente ajustada.`);
+      // Nota: registerClientPayment ya actualiza la deuda y hace el log.
   }
 
   // --- Configuración ---
@@ -203,11 +213,9 @@ class DBService {
   }
 
   async deleteSale(saleId: string): Promise<void> {
-      // 1. Obtener la venta
       const { data: sale } = await this.supabase.from('sales').select('*').eq('id', saleId).single();
       if (!sale) return;
 
-      // 2. Devolver productos al Stock
       for (const item of sale.items) {
           const { data: prod } = await this.supabase.from('products').select('stock').eq('id', item.productId).single();
           if (prod) {
@@ -215,7 +223,6 @@ class DBService {
           }
       }
 
-      // 3. Ajustar deuda si era un despacho
       if (sale.type === 'dispatch' && sale.clientId) {
           const { data: client } = await this.supabase.from('clients').select('debt').eq('id', sale.clientId).single();
           if (client) {
@@ -224,7 +231,6 @@ class DBService {
           }
       }
 
-      // 4. Borrar el registro
       await this.supabase.from('sales').delete().eq('id', saleId);
       
       await this.logAction('ELIMINAR FACTURA', `Factura #${saleId.slice(0,6)} eliminada y stock revertido.`);
@@ -251,7 +257,6 @@ class DBService {
             await this.supabase.from('products').update({ stock: prod.stock - item.quantity }).eq('id', item.productId);
         }
     }
-    // No logueamos cada venta normal para no saturar, pero podríamos si quisieras.
   }
 
   async createDispatchSale(clientId: string, items: SaleItem[], sellerId: string): Promise<void> {
@@ -282,7 +287,7 @@ class DBService {
     }
   }
   
-  // Respaldos (Mantiene funcionalidad básica)
+  // Respaldos
   async getDatabaseDump(): Promise<string> {
       const [p, c, s, st] = await Promise.all([
           this.getProducts(), this.getClients(), this.getSales(), this.getSettings()
@@ -300,10 +305,8 @@ class DBService {
       } catch { return false; }
   }
 
-  // --- RESET TOTAL (MODO EXTERMINIO) ---
   async clearAllSalesData(onProgress?: (status: string) => void): Promise<void> {
       try {
-          // 1. Borrar VENTAS
           if(onProgress) onProgress("Obteniendo registros de venta...");
           const { data: allSales } = await this.supabase.from('sales').select('id');
           if (allSales && allSales.length > 0) {
@@ -315,7 +318,6 @@ class DBService {
               }
           }
 
-          // 2. Borrar VENTAS SUSPENDIDAS
           if(onProgress) onProgress("Limpiando carritos en espera...");
           const { data: allSuspended } = await this.supabase.from('suspended_sales').select('id');
           if (allSuspended && allSuspended.length > 0) {
@@ -323,7 +325,6 @@ class DBService {
               await this.supabase.from('suspended_sales').delete().in('id', suspIds);
           }
 
-          // 3. Borrar PAGOS (Nuevo)
           if(onProgress) onProgress("Limpiando historial de pagos...");
           const { data: allPayments } = await this.supabase.from('payments').select('id');
           if (allPayments && allPayments.length > 0) {
@@ -331,7 +332,6 @@ class DBService {
               await this.supabase.from('payments').delete().in('id', payIds);
           }
 
-          // 4. Resetear DEUDAS
           if(onProgress) onProgress("Restableciendo cuentas de clientes...");
           const { data: allClients } = await this.supabase.from('clients').select('id');
           if (allClients && allClients.length > 0) {

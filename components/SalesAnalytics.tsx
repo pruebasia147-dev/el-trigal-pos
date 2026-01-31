@@ -5,7 +5,7 @@ import { db } from '../services/db';
 import html2canvas from 'html2canvas';
 import { 
   Calendar, TrendingUp, DollarSign, ShoppingBag, BarChart, 
-  FileText, Search, Clock, MapPin, X, ArrowRight, Printer, Download, Share2, Camera, Store as StoreIcon, Pencil, AlertTriangle, Trash2, CreditCard, Truck, CheckCircle
+  FileText, Search, Clock, MapPin, X, ArrowRight, Printer, Download, Share2, Camera, Store as StoreIcon, Pencil, AlertTriangle, Trash2, CreditCard, Truck, CheckCircle, User as UserIcon
 } from 'lucide-react';
 
 interface SalesAnalyticsProps {
@@ -15,10 +15,11 @@ interface SalesAnalyticsProps {
   onRefresh: () => Promise<void>;
 }
 
-type TimeFrame = 'day' | 'week' | 'month' | 'year';
+type TimeFrame = 'day' | 'week' | 'month' | 'year' | 'custom';
 
 const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settings, onRefresh }) => {
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('day');
+  const [customDate, setCustomDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [isEditingSale, setIsEditingSale] = useState(false);
@@ -33,41 +34,49 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
-    const getStartDate = () => {
-      switch (timeFrame) {
-        case 'day': return startOfToday;
-        case 'week': {
-          const d = new Date(startOfToday);
-          d.setDate(d.getDate() - 7);
-          return d;
+    // Determine filter function based on timeframe
+    const filterByDate = (saleDate: Date) => {
+        const sDate = new Date(saleDate);
+        switch (timeFrame) {
+            case 'day': 
+                return sDate.toDateString() === startOfToday.toDateString();
+            case 'custom':
+                // Adjust custom date to handle timezone offsets properly by comparing string parts
+                const selected = new Date(customDate);
+                // We compare strictly using local Date String to avoid timezone confusion
+                return sDate.toDateString() === new Date(selected.getFullYear(), selected.getMonth(), selected.getDate() + 1).toDateString() ||
+                       sDate.toISOString().split('T')[0] === customDate;
+            case 'week': 
+                const weekAgo = new Date(startOfToday);
+                weekAgo.setDate(weekAgo.getDate() - 7);
+                return sDate >= weekAgo;
+            case 'month': 
+                const monthAgo = new Date(startOfToday);
+                monthAgo.setMonth(monthAgo.getMonth() - 1);
+                return sDate >= monthAgo;
+            case 'year': 
+                const yearAgo = new Date(startOfToday);
+                yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+                return sDate >= yearAgo;
+            default:
+                return true;
         }
-        case 'month': {
-          const d = new Date(startOfToday);
-          d.setMonth(d.getMonth() - 1);
-          return d;
-        }
-        case 'year': {
-          const d = new Date(startOfToday);
-          d.setFullYear(d.getFullYear() - 1);
-          return d;
-        }
-      }
     };
-
-    const startDate = getStartDate();
     
     const rangeSales = sales.filter(s => {
-        const matchesDate = new Date(s.date) >= startDate;
+        const matchesDate = filterByDate(new Date(s.date));
         const searchLower = searchTerm.toLowerCase();
         const matchesSearch = 
-            s.clientName?.toLowerCase().includes(searchLower) || 
+            (s.clientName && s.clientName.toLowerCase().includes(searchLower)) || 
             s.id.toLowerCase().includes(searchLower) ||
-            (s.type === 'pos' && 'mostrador'.includes(searchLower));
+            (!s.clientName && 'mostrador'.includes(searchLower));
         
         return matchesDate && matchesSearch;
     }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     // Separate Cash vs Credit for Charting & Stats
+    // Note: A 'dispatch' sale that was paid becomes 'pos' but keeps clientId. 
+    // We categorize loosely here for stats:
     const cashSales = rangeSales.filter(s => s.type === 'pos');
     const creditSales = rangeSales.filter(s => s.type === 'dispatch');
 
@@ -78,7 +87,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
     rangeSales.forEach(s => {
       const date = new Date(s.date);
       let key = '';
-      if (timeFrame === 'day') key = date.toLocaleTimeString('es-ES', {hour: '2-digit', minute: '2-digit'});
+      if (timeFrame === 'day' || timeFrame === 'custom') key = date.toLocaleTimeString('es-ES', {hour: '2-digit', minute: '2-digit'});
       else if (timeFrame === 'week') key = date.toLocaleDateString('es-ES', {weekday: 'short'});
       else if (timeFrame === 'month') key = date.toLocaleDateString('es-ES', {day: 'numeric', month: 'short'});
       else key = date.toLocaleDateString('es-ES', {month: 'long'});
@@ -94,7 +103,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
       count: rangeSales.length,
       chart: chartData
     };
-  }, [sales, timeFrame, searchTerm]);
+  }, [sales, timeFrame, customDate, searchTerm]);
 
   const maxChartValue = Math.max(...(Object.values(filteredData.chart) as number[]), 10);
   const chartEntries = Object.entries(filteredData.chart) as [string, number][];
@@ -179,13 +188,13 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
   const handlePayDispatch = async (sale: Sale) => {
       if (sale.type !== 'dispatch' || !sale.clientId) return;
 
-      const confirmMsg = `¿Deseas registrar el pago TOTAL de esta factura por $${sale.totalAmount.toFixed(2)}?\n\n- Se marcará como PAGADA.\n- Se restará de la deuda de ${sale.clientName}.\n- Se sumará a la CAJA de hoy.`;
+      const confirmMsg = `¿Deseas registrar el pago TOTAL de esta factura por $${sale.totalAmount.toFixed(2)}?\n\n- Se marcará como PAGADA.\n- Se restará de la deuda de ${sale.clientName}.\n- Se sumará a la CAJA de hoy como ABONO.`;
       
       if (confirm(confirmMsg)) {
           try {
               // Usar la nueva función específica que actualiza el estado de la factura
               await db.payDispatchInvoice(sale.id, sale.totalAmount, sale.clientId);
-              alert('✅ Factura cobrada exitosamente.');
+              alert('✅ Factura cobrada exitosamente. El dinero ha entrado a caja hoy.');
               await onRefresh();
           } catch (error) {
               console.error(error);
@@ -259,13 +268,13 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
             </p>
             </div>
             
-            <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto items-center">
+            <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto items-center flex-wrap">
                 {/* Search */}
-                <div className="relative flex-1 sm:w-64">
+                <div className="relative flex-1 sm:w-64 min-w-[200px]">
                     <Search className="absolute left-3 top-3 text-gray-400" size={18} />
                     <input 
                         type="text" 
-                        placeholder="Buscar factura..."
+                        placeholder="Buscar factura, cliente..."
                         className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-bakery-400 text-sm transition-all shadow-sm text-gray-900"
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
@@ -273,20 +282,32 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                 </div>
 
                 {/* Filters */}
-                <div className="bg-gray-100 p-1.5 rounded-xl flex shadow-inner">
-                    {(['day', 'week', 'month', 'year'] as TimeFrame[]).map(t => (
+                <div className="bg-gray-100 p-1.5 rounded-xl flex shadow-inner overflow-x-auto max-w-full">
+                    {(['day', 'week', 'month'] as TimeFrame[]).map(t => (
                         <button
                         key={t}
-                        onClick={() => setTimeFrame(t)}
-                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        onClick={() => { setTimeFrame(t); if(t === 'day') setCustomDate(new Date().toISOString().split('T')[0]); }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                             timeFrame === t 
                             ? 'bg-white text-gray-900 shadow-sm scale-105' 
                             : 'text-gray-500 hover:text-gray-900'
                         }`}
                         >
-                        {t === 'day' ? 'Hoy' : t === 'week' ? 'Semana' : t === 'month' ? 'Mes' : 'Año'}
+                        {t === 'day' ? 'Hoy' : t === 'week' ? 'Semana' : 'Mes'}
                         </button>
                     ))}
+                    {/* Botón Custom Date */}
+                    <div className="flex items-center gap-1 pl-2 border-l border-gray-200 ml-2">
+                        <input 
+                            type="date" 
+                            className={`text-xs font-bold bg-transparent outline-none p-1 rounded-lg ${timeFrame === 'custom' ? 'text-bakery-700 bg-white shadow-sm' : 'text-gray-500'}`}
+                            value={customDate}
+                            onChange={(e) => {
+                                setCustomDate(e.target.value);
+                                setTimeFrame('custom');
+                            }}
+                        />
+                    </div>
                 </div>
             </div>
           </div>
@@ -296,7 +317,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
               {/* Card 1: Cash Sales */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group">
                   <div>
-                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ventas Contado (Caja)</p>
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ventas Contado (Periodo)</p>
                       <p className="text-3xl font-bold text-gray-900">${filteredData.totalCash.toLocaleString('es-US', {minimumFractionDigits: 2})}</p>
                   </div>
                   <div className="p-4 bg-green-50 text-green-600 rounded-2xl group-hover:scale-110 transition-transform"><CreditCard size={24}/></div>
@@ -305,7 +326,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
               {/* Card 2: Credit Sales */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group">
                   <div>
-                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ventas Crédito (Por Cobrar)</p>
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ventas Crédito (Periodo)</p>
                       <p className="text-3xl font-bold text-blue-600">${filteredData.totalCredit.toLocaleString('es-US', {minimumFractionDigits: 2})}</p>
                   </div>
                   <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl group-hover:scale-110 transition-transform"><Truck size={24}/></div>
@@ -321,26 +342,14 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
               </div>
           </div>
 
-          {/* Chart Section */}
-          <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm flex flex-col relative overflow-hidden">
-            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-6 flex items-center gap-2 relative z-10">
-            <BarChart size={16}/>
-            Tendencia Global (Contado + Crédito)
-            </h3>
-            
-            <div className="overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent relative z-10">
-                <div className="h-64 flex items-end gap-3 px-2" style={{ minWidth: `${minChartWidth}%` }}>
-                    <ReportLineChart entries={chartEntries} maxVal={maxChartValue} />
-                </div>
-            </div>
-          </div>
-
           {/* Detailed Table */}
           <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white">
                 <div>
                     <h3 className="font-bold text-xl text-gray-900">Detalle de Operaciones</h3>
-                    <p className="text-sm text-gray-500 mt-1">Historial completo del periodo seleccionado.</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                        {timeFrame === 'custom' ? `Mostrando dia: ${new Date(customDate).toLocaleDateString()}` : 'Historial del periodo seleccionado.'}
+                    </p>
                 </div>
                 <span className="text-xs font-bold text-gray-600 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200">{filteredData.count} registros</span>
             </div>
@@ -374,11 +383,16 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                                 </td>
                                 <td className="px-8 py-5">
                                     <div className="flex flex-col">
-                                        {sale.type === 'pos' ? (
-                                            <span className="font-bold text-gray-800">Mostrador (Caja)</span>
+                                        {/* CORRECCIÓN: Si tiene nombre de cliente, mostrarlo SIEMPRE, incluso si es 'pos' (pagado) */}
+                                        {sale.clientName ? (
+                                            <span className="font-bold text-blue-800 flex items-center gap-1">
+                                                <UserIcon size={14} className="text-blue-400"/>
+                                                {sale.clientName}
+                                            </span>
                                         ) : (
-                                            <span className="font-bold text-blue-700">{sale.clientName}</span>
+                                            <span className="font-bold text-gray-800">Mostrador (Caja)</span>
                                         )}
+                                        
                                         <div className="flex items-center gap-1 mt-1">
                                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide border ${
                                                 sale.type === 'pos' 
@@ -438,7 +452,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
           </div>
       </div>
 
-      {/* Invoice Modal (Screen View) */}
+      {/* Invoice Modal (Same as before) */}
       {selectedSale && !isEditingSale && (
         <div className="print:hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col h-auto max-h-[90vh]">
@@ -617,14 +631,11 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
   );
 };
 
+// ... SingleInvoiceTemplate and ReportLineChart components remain same ...
 const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = ({ sale, settings }) => {
     return (
         <div className="w-full h-full bg-white text-black p-10 font-sans text-sm leading-normal max-w-[210mm] mx-auto print:p-0">
-             
-             {/* Top Banner Accent */}
              <div className="h-4 bg-gray-900 w-full mb-8 print:mb-6"></div>
-
-             {/* Header Section */}
              <div className="flex justify-between items-start mb-12 print:mb-8">
                  <div className="flex flex-col gap-2">
                      <div className="flex items-center gap-3">
@@ -656,7 +667,6 @@ const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = (
                  </div>
              </div>
 
-             {/* Client Info Box */}
              <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 mb-10 flex justify-between items-start print:bg-white print:border-gray-300 print:mb-6">
                  <div>
                     <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 print:text-gray-600">Facturar A:</h3>
@@ -678,7 +688,6 @@ const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = (
                  </div>
              </div>
 
-             {/* Table */}
              <div className="mb-8">
                  <table className="w-full text-left border-collapse">
                      <thead>
@@ -705,7 +714,6 @@ const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = (
                  </table>
              </div>
 
-             {/* Totals Section */}
              <div className="flex justify-end mb-16">
                  <div className="w-1/2 lg:w-1/3">
                      <div className="flex justify-between py-2 border-b border-gray-100 print:border-gray-200">
@@ -722,7 +730,6 @@ const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = (
                  </div>
              </div>
 
-             {/* Footer */}
              <div className="fixed bottom-10 left-10 right-10 border-t border-gray-200 pt-6 print:absolute print:bottom-8">
                  <div className="flex justify-between items-end text-xs text-gray-500">
                      <div className="space-y-1">
@@ -761,8 +768,6 @@ const ReportLineChart: React.FC<{ entries: [string, number][], maxVal: number }>
     const y0 = getY(dataPoints[i].value);
     const x1 = getX(i + 1);
     const y1 = getY(dataPoints[i + 1].value);
-    
-    // Control points for smoothing
     const cp1x = x0 + (x1 - x0) * 0.5;
     const cp1y = y0;
     const cp2x = x1 - (x1 - x0) * 0.5;
@@ -782,10 +787,8 @@ const ReportLineChart: React.FC<{ entries: [string, number][], maxVal: number }>
             <stop offset="100%" stopColor="#f97316" stopOpacity="0" />
           </linearGradient>
         </defs>
-        
         <path d={fillPath} fill="url(#chartGradientReport)" />
         <path d={pathD} fill="none" stroke="#f97316" strokeWidth="1" strokeLinecap="round" />
-        
         {dataPoints.map((pt, i) => (
           <g key={i} className="group/point">
              <circle 
