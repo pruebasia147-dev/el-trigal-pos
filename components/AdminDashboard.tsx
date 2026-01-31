@@ -10,7 +10,8 @@ import {
   LayoutDashboard, Package, Users, Settings, LogOut, 
   TrendingUp, DollarSign, Edit, Menu, X, Plus, BarChart3, 
   Wallet, Activity, Calculator, Trash2,
-  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck, ArrowRight, Tag, Share2, Printer, Store as StoreIcon, ShoppingBasket
+  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck, ArrowRight, Tag, Share2, Printer, Store as StoreIcon, ShoppingBasket,
+  CheckCircle, AlertTriangle
 } from 'lucide-react';
 
 interface AdminProps {
@@ -43,9 +44,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   // Reset States
   const [isResetting, setIsResetting] = useState(false);
   const [resetStatus, setResetStatus] = useState('');
-
-  // Chat State
-  const [chatMessage, setChatMessage] = useState('');
 
   // Simple edit states
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -278,7 +276,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   };
 
   // --- Financial & Projection Logic ---
-  const calculateFinancials = () => {
+  const financials = useMemo(() => {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -370,12 +368,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
         todayExpenses, // Exported for Modal
         todayCashExpenses
     };
-  };
-
-  const financials = calculateFinancials();
+  }, [sales, payments, expenses, products, clients]);
 
   // --- Logic for Daily Profit Breakdown ---
-  const getDailyProfitBreakdown = () => {
+  const profitBreakdown = useMemo(() => {
       const breakdown: any[] = [];
 
       // 1. POS Items
@@ -416,8 +412,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
 
       // 2. Debt Collections (Generic Entry)
       if (financials.todayDebtCollection > 0) {
-          // Simplificación: Asumimos margen sobre el cobro para no complicar el desglose visual
-          // El calculo real ya está hecho en financials.todayTotalLiquidProfit
           breakdown.push({
               name: 'Cobros de Deuda (Varios)',
               qty: 1,
@@ -445,7 +439,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
       });
 
       return sorted;
-  };
+  }, [financials, products]);
 
   // --- Logic for Pending Profit Detail ---
   const getPendingProfitBreakdown = () => {
@@ -493,7 +487,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
         .sort((a, b) => b.totalRetailValue - a.totalRetailValue);
   };
 
-  const profitBreakdown = getDailyProfitBreakdown();
   const pendingProfitBreakdown = getPendingProfitBreakdown();
   const debtorsList = getDebtorsList();
   const inventoryList = getInventoryList();
@@ -993,6 +986,105 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                     </table>
                 </div>
             </div>
+        )}
+
+        {/* --- SETTINGS TAB (ADDED) --- */}
+        {activeTab === 'settings' && (
+          <div className="animate-in fade-in duration-500 max-w-3xl mx-auto pb-20">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <Settings size={28} className="text-gray-400"/> Configuración del Sistema
+            </h2>
+            
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200 space-y-6">
+                <div>
+                    <h3 className="font-bold text-lg text-gray-800 mb-4 border-b pb-2">Datos del Negocio</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Nombre del Negocio</label>
+                            <input 
+                                type="text" 
+                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-bakery-400 outline-none transition-all"
+                                value={settings.businessName}
+                                onChange={e => setSettings({...settings, businessName: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">RIF / Documento</label>
+                            <input 
+                                type="text" 
+                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-bakery-400 outline-none transition-all"
+                                value={settings.rif}
+                                onChange={e => setSettings({...settings, rif: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Teléfono</label>
+                            <input 
+                                type="text" 
+                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-bakery-400 outline-none transition-all"
+                                value={settings.phone}
+                                onChange={e => setSettings({...settings, phone: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Dirección Fiscal</label>
+                            <input 
+                                type="text" 
+                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-bakery-400 outline-none transition-all"
+                                value={settings.address}
+                                onChange={e => setSettings({...settings, address: e.target.value})}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 className="font-bold text-lg text-gray-800 mb-4 border-b pb-2">Economía</h3>
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Tasa de Cambio (Bs/USD)</label>
+                        <div className="flex items-center gap-2 max-w-xs">
+                            <span className="text-2xl">🇻🇪</span>
+                            <input 
+                                type="number" 
+                                step="0.01"
+                                className="w-full p-3 text-lg font-bold bg-white border-2 border-bakery-400 rounded-xl focus:ring-4 focus:ring-bakery-100 outline-none transition-all text-bakery-800"
+                                value={settings.exchangeRate}
+                                onChange={e => setSettings({...settings, exchangeRate: parseFloat(e.target.value)})}
+                            />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Afecta el cálculo en Bolívares en todo el sistema.</p>
+                    </div>
+                </div>
+
+                <div className="pt-4 flex justify-end">
+                    <button 
+                        onClick={handleUpdateSettings}
+                        className="bg-gray-900 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-gray-800 active:scale-95 transition-all flex items-center gap-2"
+                    >
+                        <CheckCircle size={20}/> Guardar Configuración
+                    </button>
+                </div>
+            </div>
+
+            <div className="mt-10 p-6 bg-red-50 rounded-3xl border border-red-100">
+                <h3 className="font-bold text-red-800 mb-2 flex items-center gap-2"><Trash2 size={20}/> Zona de Peligro</h3>
+                <p className="text-sm text-red-600 mb-4">Estas acciones son destructivas y no se pueden deshacer.</p>
+                
+                <button 
+                    onClick={handleResetSales}
+                    disabled={isResetting}
+                    className="bg-white border border-red-200 text-red-600 px-6 py-3 rounded-xl font-bold hover:bg-red-600 hover:text-white transition-colors shadow-sm w-full sm:w-auto flex items-center justify-center gap-2"
+                >
+                    {isResetting ? (
+                        <span className="animate-pulse">{resetStatus || 'Procesando...'}</span>
+                    ) : (
+                        <>
+                           <AlertTriangle size={18} /> Reiniciar Base de Datos (Factory Reset)
+                        </>
+                    )}
+                </button>
+            </div>
+          </div>
         )}
       </main>
 

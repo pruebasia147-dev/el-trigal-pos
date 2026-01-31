@@ -60,9 +60,6 @@ class DBService {
       const queue = [...this.pendingQueue]; // Copia para iterar
       const failed: PendingAction[] = [];
 
-      // Notificar al usuario (opcional, visualmente se podría mejorar)
-      // alert(`Sincronizando ${queue.length} operaciones pendientes...`);
-
       for (const action of queue) {
           try {
               console.log(`Syncing action: ${action.type}`, action.payload);
@@ -91,15 +88,15 @@ class DBService {
       
       if (failed.length === 0) {
           console.log("✅ Sincronización completada exitosamente.");
-          // Recargar datos frescos
           await this.getProducts(); 
           await this.getClients();
+          await this.getExpenses(); // Recargar gastos también
       }
   }
 
   // --- SISTEMA DE AUDITORÍA (LOGS) ---
   async logAction(action: string, details: string, user: string = 'Admin'): Promise<void> {
-    if (!this.isOnline) return; // No loguear offline para ahorrar ancho de banda al reconectar
+    if (!this.isOnline) return; 
     try {
         await this.supabase.from('audit_logs').insert({
             id: this.generateId(),
@@ -121,7 +118,7 @@ class DBService {
 
   // --- Inicialización ---
   async init() {
-    if (!this.isOnline) return; // Skip init check if offline
+    if (!this.isOnline) return;
     try {
         const { count, error } = await this.supabase.from('products').select('*', { count: 'exact', head: true });
         
@@ -138,7 +135,6 @@ class DBService {
                 await this.supabase.from('settings').insert({ id: 1, ...INITIAL_SETTINGS });
             }
         }
-        // Intentar sincronizar al inicio si hay internet
         this.syncPendingActions();
     } catch (e) {
         console.error("Error en init:", e);
@@ -150,11 +146,10 @@ class DBService {
     if (this.isOnline) {
         const { data, error } = await this.supabase.from('products').select('*');
         if (!error && data) {
-            localStorage.setItem('cachedProducts', JSON.stringify(data)); // Cachear
+            localStorage.setItem('cachedProducts', JSON.stringify(data)); 
             return data;
         }
     }
-    // Fallback Offline
     const cached = localStorage.getItem('cachedProducts');
     return cached ? JSON.parse(cached) : [];
   }
@@ -215,7 +210,6 @@ class DBService {
 
   async registerClientPayment(clientId: string, amount: number, note: string = '', isSync = false): Promise<void> {
     if (!this.isOnline && !isSync) {
-        // Optimistic UI: Update local cache immediately so user sees the change
         const cached = localStorage.getItem('cachedClients');
         if (cached) {
             const clients: Client[] = JSON.parse(cached);
@@ -237,7 +231,7 @@ class DBService {
     }
 
     const { data: client } = await this.supabase.from('clients').select('*').eq('id', clientId).single();
-    if (!client) return; // Fail silently if syncing and client gone
+    if (!client) return; 
     
     const newDebt = Math.max(0, client.debt - amount);
     await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
@@ -270,7 +264,6 @@ class DBService {
   }
 
   async getSettings(): Promise<AppSettings> {
-    // Cache settings too
     if (this.isOnline) {
         const { data } = await this.supabase.from('settings').select('*').single();
         if (data) {
@@ -290,11 +283,9 @@ class DBService {
 
   // --- Ventas Suspendidas (Siempre LocalStorage) ---
   async getSuspendedSales(): Promise<SuspendedSale[]> {
-      // Use localStorage for suspended sales to ensure they persist offline/refresh
       const local = localStorage.getItem('localSuspendedSales');
       if (local) return JSON.parse(local);
       
-      // Fallback to DB if online
       if (this.isOnline) {
           const { data } = await this.supabase.from('suspended_sales').select('*');
           return data || [];
@@ -303,7 +294,6 @@ class DBService {
   }
 
   async addSuspendedSale(sale: SuspendedSale): Promise<void> {
-      // Save locally first
       const local = await this.getSuspendedSales();
       const saleToSave = { ...sale, id: sale.id || this.generateId() };
       localStorage.setItem('localSuspendedSales', JSON.stringify([...local, saleToSave]));
@@ -344,7 +334,6 @@ class DBService {
 
   async deleteSale(saleId: string): Promise<void> {
       if(!this.isOnline) return;
-      // Logic for delete is complex offline, restriction to online for safety on "delete"
       const { data: sale } = await this.supabase.from('sales').select('*').eq('id', saleId).single();
       if (!sale) return;
 
@@ -377,7 +366,6 @@ class DBService {
         });
         this.saveQueue();
         
-        // Optimistic Stock Update
         const cached = localStorage.getItem('cachedProducts');
         if (cached) {
             const prods: Product[] = JSON.parse(cached);
@@ -404,9 +392,7 @@ class DBService {
     const { error } = await this.supabase.from('sales').insert(sale);
     if (error) throw error;
 
-    // Update DB Stock
     for (const item of items) {
-        // Simple decrement query
         const { data: prod } = await this.supabase.from('products').select('stock').eq('id', item.productId).single();
         if (prod) {
             await this.supabase.from('products').update({ stock: prod.stock - item.quantity }).eq('id', item.productId);
@@ -415,10 +401,7 @@ class DBService {
   }
 
   async createDispatchSale(clientId: string, items: SaleItem[], sellerId: string, isSync = false): Promise<void> {
-    // Necesitamos el cliente para el nombre
     let clientName = '';
-    
-    // Obtener cliente (cache o DB)
     if (this.isOnline) {
         const { data } = await this.supabase.from('clients').select('name').eq('id', clientId).single();
         clientName = data?.name || 'Cliente';
@@ -439,7 +422,6 @@ class DBService {
         });
         this.saveQueue();
 
-        // Optimistic Updates
         const cachedProds = localStorage.getItem('cachedProducts');
         if (cachedProds) {
             const prods: Product[] = JSON.parse(cachedProds);
@@ -477,13 +459,11 @@ class DBService {
 
     await this.supabase.from('sales').insert(sale);
     
-    // Update Debt DB
     const { data: clientData } = await this.supabase.from('clients').select('debt').eq('id', clientId).single();
     if(clientData) {
         await this.supabase.from('clients').update({ debt: clientData.debt + totalAmount }).eq('id', clientId);
     }
 
-    // Update Stock DB
     for (const item of items) {
         const { data: prod } = await this.supabase.from('products').select('stock').eq('id', item.productId).single();
         if (prod) {
@@ -496,14 +476,24 @@ class DBService {
   async getExpenses(): Promise<Expense[]> {
       if(this.isOnline) {
           const { data } = await this.supabase.from('expenses').select('*').order('date', {ascending: false}).limit(100);
-          return data || [];
+          if (data) {
+              localStorage.setItem('cachedExpenses', JSON.stringify(data));
+              return data;
+          }
       }
-      return [];
+      const cached = localStorage.getItem('cachedExpenses');
+      return cached ? JSON.parse(cached) : [];
   }
 
   async addExpense(expense: Expense): Promise<void> {
       if(!this.isOnline) { alert('El registro de gastos requiere conexión.'); return; }
       const newExpense = { ...expense, id: expense.id || this.generateId() };
+      
+      // Update Cache Optimistically to ensure UI updates immediately
+      const cached = localStorage.getItem('cachedExpenses');
+      const currentExpenses = cached ? JSON.parse(cached) : [];
+      localStorage.setItem('cachedExpenses', JSON.stringify([newExpense, ...currentExpenses]));
+
       await this.supabase.from('expenses').insert(newExpense);
       await this.logAction('GASTO REGISTRADO', `Compra: ${expense.description} ($${expense.amount})`);
   }
@@ -511,6 +501,15 @@ class DBService {
   async deleteExpense(id: string): Promise<void> {
       if(!this.isOnline) return;
       await this.supabase.from('expenses').delete().eq('id', id);
+      
+      // Update cache
+      const cached = localStorage.getItem('cachedExpenses');
+      if (cached) {
+          const expenses: Expense[] = JSON.parse(cached);
+          const filtered = expenses.filter(e => e.id !== id);
+          localStorage.setItem('cachedExpenses', JSON.stringify(filtered));
+      }
+
       await this.logAction('GASTO ELIMINADO', `ID Gasto: ${id}`);
   }
   
@@ -568,13 +567,17 @@ class DBService {
               await this.supabase.from('clients').update({ debt: 0 }).in('id', clientIds);
           }
 
-          // LIMPIEZA DE GASTOS TAMBIÉN
           if(onProgress) onProgress("Limpiando historial de gastos...");
           const { data: allExpenses } = await this.supabase.from('expenses').select('id');
           if (allExpenses && allExpenses.length > 0) {
               const expenseIds = allExpenses.map(e => e.id);
               await this.supabase.from('expenses').delete().in('id', expenseIds);
           }
+          
+          // Clear caches
+          localStorage.removeItem('cachedSales');
+          localStorage.removeItem('cachedExpenses');
+          localStorage.removeItem('cachedClients');
 
           if(onProgress) onProgress("Limpieza finalizada.");
           await this.logAction('RESET TOTAL', 'Se ha limpiado toda la base de datos.');
