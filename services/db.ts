@@ -124,56 +124,43 @@ class DBService {
     const { data: client } = await this.supabase.from('clients').select('*').eq('id', clientId).single();
     if (!client) throw new Error("Cliente no encontrado");
     
-    // 1. Actualizar la deuda del cliente PRIMERO (Lo más importante para el usuario)
-    const newDebt = Math.max(0, client.debt - amount);
-    const { error: clientError } = await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
-    
-    if (clientError) throw clientError; // Si falla esto, sí lanzamos error y paramos.
+    // 1. Registrar el pago en la tabla histórica (Nueva tabla 'payments')
+    const payment: Payment = {
+        id: this.generateId(),
+        clientId,
+        amount,
+        date: new Date().toISOString(),
+        note
+    };
+    await this.supabase.from('payments').insert(payment);
 
-    // 2. Registrar el pago en la tabla histórica (Nueva tabla 'payments')
-    // Intentamos registrarlo para el Dashboard. Si falla (ej: no existe la tabla), NO lanzamos error para no bloquear al usuario.
-    try {
-        const payment: Payment = {
-            id: this.generateId(),
-            clientId,
-            amount,
-            date: new Date().toISOString(), 
-            note
-        };
-        
-        const { error: insertError } = await this.supabase.from('payments').insert(payment);
-        if (insertError) {
-            console.warn("⚠️ Advertencia: No se pudo guardar en historial de pagos (Posible falta de tabla 'payments'). El abono se aplicó a la cuenta pero no saldrá en el dashboard hoy.", insertError.message);
-        }
-    } catch (e) {
-        console.warn("Error no bloqueante guardando historial de pagos:", e);
-    }
+    // 2. Actualizar la deuda del cliente
+    const newDebt = Math.max(0, client.debt - amount);
+    await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
 
     await this.logAction('PAGO CLIENTE', `Cobro de $${amount} al cliente ${client.businessName}. Nota: ${note}`);
   }
 
   async getPayments(): Promise<Payment[]> {
-      // Obtenemos los últimos 200 pagos ordenados por fecha descendente
-      // Si la tabla no existe, devuelve error, capturamos y devolvemos array vacío para no romper el dashboard
-      const { data, error } = await this.supabase.from('payments').select('*').order('date', { ascending: false }).limit(200);
-      if (error) {
-          console.warn("No se pudo obtener pagos (¿Tabla 'payments' existe?)", error.message);
-          return [];
-      }
+      const { data } = await this.supabase.from('payments').select('*').order('date', { ascending: false }).limit(200);
       return data || [];
   }
 
   // --- NUEVA FUNCIÓN: COBRAR FACTURA DE DESPACHO ---
   async payDispatchInvoice(saleId: string, amount: number, clientId: string): Promise<void> {
-      // 1. Convertir la venta a 'pos' (Mostrador/Pagado) para que salga del listado de pendientes
-      // NOTA: Al pasar a POS, ya no aparecerá como pendiente, pero sigue teniendo clientId.
+      // 1. Convertir la venta a 'pos' (Mostrador/Pagado)
       const { error: saleError } = await this.supabase.from('sales').update({ type: 'pos' }).eq('id', saleId);
       if (saleError) throw saleError;
 
-      // 2. IMPORTANTE: Registrar el pago explícitamente en la tabla payments.
-      // Esto actualiza la deuda y asegura que aparezca en el reporte de caja diario como un Ingreso.
-      // Usamos una nota específica para identificar que viene de una factura.
-      await this.registerClientPayment(clientId, amount, `Pago Factura #${saleId.slice(0,6)}`);
+      // 2. Reducir la deuda del cliente manualmente (sin crear registro de pago duplicado en payments)
+      const { data: client } = await this.supabase.from('clients').select('debt').eq('id', clientId).single();
+      if (client) {
+          const newDebt = Math.max(0, client.debt - amount);
+          await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
+      }
+      
+      // 3. Log
+      await this.logAction('COBRO FACTURA', `Factura #${saleId.slice(0,6)} marcada como PAGADA. Deuda cliente ajustada.`);
   }
 
   // --- Configuración ---
