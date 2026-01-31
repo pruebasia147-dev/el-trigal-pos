@@ -1,7 +1,7 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { INITIAL_CLIENTS, INITIAL_PRODUCTS, INITIAL_SETTINGS } from "../constants";
-import { AppSettings, AuditLog, Client, Payment, Product, Sale, SaleItem, SuspendedSale } from "../types";
+import { AppSettings, AuditLog, Client, Expense, Payment, Product, Sale, SaleItem, SuspendedSale } from "../types";
 
 // --- CONFIGURACIÓN DE SUPABASE ---
 const SUPABASE_URL = 'https://okatgcixtvmdjvsyxeau.supabase.co';
@@ -491,6 +491,28 @@ class DBService {
         }
     }
   }
+
+  // --- GESTIÓN DE EGRESOS/COMPRAS (NUEVO) ---
+  async getExpenses(): Promise<Expense[]> {
+      if(this.isOnline) {
+          const { data } = await this.supabase.from('expenses').select('*').order('date', {ascending: false}).limit(100);
+          return data || [];
+      }
+      return [];
+  }
+
+  async addExpense(expense: Expense): Promise<void> {
+      if(!this.isOnline) { alert('El registro de gastos requiere conexión.'); return; }
+      const newExpense = { ...expense, id: expense.id || this.generateId() };
+      await this.supabase.from('expenses').insert(newExpense);
+      await this.logAction('GASTO REGISTRADO', `Compra: ${expense.description} ($${expense.amount})`);
+  }
+
+  async deleteExpense(id: string): Promise<void> {
+      if(!this.isOnline) return;
+      await this.supabase.from('expenses').delete().eq('id', id);
+      await this.logAction('GASTO ELIMINADO', `ID Gasto: ${id}`);
+  }
   
   // Respaldos y Limpieza
   async getDatabaseDump(): Promise<string> {
@@ -544,6 +566,14 @@ class DBService {
           if (allClients && allClients.length > 0) {
               const clientIds = allClients.map(c => c.id);
               await this.supabase.from('clients').update({ debt: 0 }).in('id', clientIds);
+          }
+
+          // LIMPIEZA DE GASTOS TAMBIÉN
+          if(onProgress) onProgress("Limpiando historial de gastos...");
+          const { data: allExpenses } = await this.supabase.from('expenses').select('id');
+          if (allExpenses && allExpenses.length > 0) {
+              const expenseIds = allExpenses.map(e => e.id);
+              await this.supabase.from('expenses').delete().in('id', expenseIds);
           }
 
           if(onProgress) onProgress("Limpieza finalizada.");

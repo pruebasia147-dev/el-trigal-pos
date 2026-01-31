@@ -68,6 +68,16 @@ export interface Sale {
   sellerId: string;
 }
 
+export interface Expense {
+  id: string;
+  date: string;
+  category: 'Materia Prima' | 'Servicios' | 'Nómina' | 'Mantenimiento' | 'Varios';
+  description: string;
+  amount: number;
+  paymentMethod: 'cash' | 'bank'; // cash = resta de caja física, bank = resta de ganancia pero no de caja
+  registeredBy: string;
+}
+
 export interface AppSettings {
   exchangeRate: number; // Bs per USD
   businessName: string;

@@ -1,15 +1,16 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { db } from '../services/db';
-import { AppSettings, Client, Product, Sale, AuditLog, Payment } from '../types';
+import { AppSettings, Client, Product, Sale, AuditLog, Payment, Expense } from '../types';
 import SalesAnalytics from './SalesAnalytics';
 import ClientCRM from './ClientCRM';
+import ExpensesManager from './ExpensesManager';
 import html2canvas from 'html2canvas';
 import { 
   LayoutDashboard, Package, Users, Settings, LogOut, 
   TrendingUp, DollarSign, Edit, Menu, X, Plus, BarChart3, 
   Wallet, Activity, Calculator, Trash2,
-  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck, ArrowRight, Tag, Share2, Printer, Store as StoreIcon
+  CalendarDays, Coins, Warehouse, PieChart, ScrollText, UserCog, Truck, ArrowRight, Tag, Share2, Printer, Store as StoreIcon, ShoppingBasket
 } from 'lucide-react';
 
 interface AdminProps {
@@ -29,11 +30,12 @@ interface SimExpense {
 }
 
 const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'inventory' | 'clients' | 'simulation' | 'settings' | 'logs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'inventory' | 'clients' | 'expenses' | 'simulation' | 'settings' | 'logs'>('overview');
   const [products, setProducts] = useState<Product[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]); // New State for Expenses
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [settings, setSettings] = useState<AppSettings>({ exchangeRate: 0, businessName: '', rif: '', address: '', phone: '' });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -58,7 +60,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   const [showPendingProfitDetail, setShowPendingProfitDetail] = useState(false);
   const [showTotalDebtDetail, setShowTotalDebtDetail] = useState(false);
   const [showInventoryDetail, setShowInventoryDetail] = useState(false);
-  const [showInventoryRetailDetail, setShowInventoryRetailDetail] = useState(false); // NEW
+  const [showInventoryRetailDetail, setShowInventoryRetailDetail] = useState(false); 
 
   // --- INVOICE VIEW STATE ---
   const [selectedInvoice, setSelectedInvoice] = useState<Sale | null>(null);
@@ -76,18 +78,20 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = async () => {
-    const [p, c, s, st, pay] = await Promise.all([
+    const [p, c, s, st, pay, exp] = await Promise.all([
       db.getProducts(),
       db.getClients(),
       db.getSales(),
       db.getSettings(),
-      db.getPayments()
+      db.getPayments(),
+      db.getExpenses()
     ]);
     setProducts(p);
     setClients(c);
     setSales(s);
     setSettings(st);
     setPayments(pay);
+    setExpenses(exp);
   };
   
   const loadLogs = async () => {
@@ -278,7 +282,13 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayString = startOfToday.toDateString();
     
+    // Expenses Calculation
+    const todayExpenses = expenses.filter(e => new Date(e.date).toDateString() === todayString);
+    const todayCashExpenses = todayExpenses.filter(e => e.paymentMethod === 'cash').reduce((acc, e) => acc + e.amount, 0);
+    const todayTotalExpenses = todayExpenses.reduce((acc, e) => acc + e.amount, 0);
+
     // Helper to calc profit for a set of sales
     const getProfit = (saleList: Sale[]) => {
       let cost = 0;
@@ -311,13 +321,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
     const todayCashSalesRevenue = todayCashSales.reduce((acc, curr) => acc + curr.totalAmount, 0);
     const todayCashSalesProfit = getProfit(todayCashSales);
 
-    // DINERO EN CAJA HOY = Ventas Mostrador + Cobros de Deuda
-    const todayTotalCashInHand = todayCashSalesRevenue + todayDebtCollection;
+    // DINERO EN CAJA HOY = (Ventas Mostrador + Cobros de Deuda) - GASTOS EN EFECTIVO
+    const todayTotalCashInHand = (todayCashSalesRevenue + todayDebtCollection) - todayCashExpenses;
 
-    // GANANCIA LÍQUIDA HOY = Ganancia Mostrador + (Cobros de Deuda * Margen Estimado)
-    // Asumimos que cuando entra un pago, una parte es costo recuperado y otra es ganancia realizada.
+    // GANANCIA LÍQUIDA HOY = (Ganancia Mostrador + (Cobros de Deuda * Margen Estimado)) - TOTAL GASTOS (Caja + Banco)
     const todayRealizedProfitFromDebt = todayDebtCollection * globalMargin;
-    const todayTotalLiquidProfit = todayCashSalesProfit + todayRealizedProfitFromDebt;
+    const todayTotalLiquidProfit = (todayCashSalesProfit + todayRealizedProfitFromDebt) - todayTotalExpenses;
 
     // Credit Sales (Despacho) - Cuentas por Cobrar (Generadas hoy)
     const todayCreditSales = todaySales.filter(s => s.type === 'dispatch');
@@ -356,7 +365,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
         todaySales,
         todayPayments, // Exported for Modal
         todayCashSales, // Exported for Modal
-        todayCreditSales // Exported for Modal
+        todayCashSalesRevenue, // Exported for Modal
+        todayCreditSales, // Exported for Modal
+        todayExpenses, // Exported for Modal
+        todayCashExpenses
     };
   };
 
@@ -404,19 +416,35 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
 
       // 2. Debt Collections (Generic Entry)
       if (financials.todayDebtCollection > 0) {
-          const estimatedMargin = financials.todayTotalLiquidProfit - breakdown.reduce((acc, i) => acc + i.profit, 0);
+          // Simplificación: Asumimos margen sobre el cobro para no complicar el desglose visual
+          // El calculo real ya está hecho en financials.todayTotalLiquidProfit
           breakdown.push({
               name: 'Cobros de Deuda (Varios)',
               qty: 1,
               unitCost: 0,
               avgUnitPrice: financials.todayDebtCollection,
               revenue: financials.todayDebtCollection,
-              profit: estimatedMargin,
+              profit: financials.todayDebtCollection * 0.3, // Visual approx
               type: 'collection'
           });
       }
 
-      return breakdown.sort((a,b) => b.profit - a.profit);
+      const sorted = breakdown.sort((a,b) => b.profit - a.profit);
+
+      // 3. Expenses Deduction (Negative Entry)
+      financials.todayExpenses.forEach(exp => {
+          sorted.push({
+              name: `Gasto: ${exp.description}`,
+              qty: 1,
+              unitCost: exp.amount,
+              avgUnitPrice: 0,
+              revenue: 0,
+              profit: -exp.amount, // Negative profit
+              type: 'expense'
+          });
+      });
+
+      return sorted;
   };
 
   // --- Logic for Pending Profit Detail ---
@@ -469,7 +497,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   const pendingProfitBreakdown = getPendingProfitBreakdown();
   const debtorsList = getDebtorsList();
   const inventoryList = getInventoryList();
-  const inventoryRetailList = getInventoryRetailList(); // NEW
+  const inventoryRetailList = getInventoryRetailList(); 
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans text-gray-900">
@@ -497,13 +525,14 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
           <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mt-1">Panel Administrativo</p>
         </div>
         
-        <nav className="flex-1 px-4 space-y-2 mt-20 md:mt-0">
+        <nav className="flex-1 px-4 space-y-2 mt-20 md:mt-0 overflow-y-auto">
           {[
             { id: 'overview', label: 'Resumen', icon: LayoutDashboard },
             { id: 'analytics', label: 'Reportes Detallados', icon: BarChart3 },
-            { id: 'simulation', label: 'Simulador (Básico)', icon: Calculator },
+            { id: 'expenses', label: 'Compras y Gastos', icon: ShoppingBasket }, // NUEVO
             { id: 'clients', label: 'Clientes CRM', icon: Users },
             { id: 'inventory', label: 'Inventario', icon: Package },
+            { id: 'simulation', label: 'Simulador (Básico)', icon: Calculator },
             { id: 'logs', label: 'Actividad', icon: ScrollText },
             { id: 'settings', label: 'Ajustes', icon: Settings },
           ].map((item) => (
@@ -559,7 +588,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                             <span className="text-xs font-bold uppercase tracking-wider">Dinero en Caja (Hoy)</span>
                         </div>
                         <h3 className="text-4xl font-bold tracking-tight">${financials.todayTotalCashInHand.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
-                        <p className="text-sm text-gray-400 mt-1 flex items-center gap-1">Ventas Contado + Cobros Deuda <ArrowRight size={14}/></p>
+                        <p className="text-sm text-gray-400 mt-1 flex items-center gap-1">Entradas - Salidas (Compras) <ArrowRight size={14}/></p>
                     </div>
                  </div>
 
@@ -592,7 +621,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                         </div>
                         <h3 className="text-4xl font-bold tracking-tight">${financials.todayTotalLiquidProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</h3>
                         <div className="flex items-center justify-between mt-1">
-                             <p className="text-sm text-emerald-100 opacity-90">Realizada (Caja + Abonos)</p>
+                             <p className="text-sm text-emerald-100 opacity-90">Neto (Desc. Gastos)</p>
                              <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 hover:bg-white/30 transition-colors">
                                 <PieChart size={12} /> Ver Desglose
                              </span>
@@ -695,6 +724,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                 </div>
             </div>
           </div>
+        )}
+
+        {/* --- EXPENSES TAB (NEW) --- */}
+        {activeTab === 'expenses' && (
+            <ExpensesManager 
+                expenses={expenses} 
+                onRefresh={loadData} 
+                cashInHand={financials.todayTotalCashInHand} 
+            />
         )}
 
         {/* ... (Rest of tabs: Analytics) ... */}
@@ -989,10 +1027,24 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                                     <p className="text-xs text-gray-500">{financials.todayCashSales.length} transacciones de contado</p>
                                 </td>
                                 <td className="px-6 py-4 text-right font-bold text-gray-900">
-                                    ${(financials.todayTotalCashInHand - financials.todayDebtCollection).toFixed(2)}
+                                    +${financials.todayCashSalesRevenue.toFixed(2)}
                                 </td>
                             </tr>
-                            {/* Line 2+: Specific Debt Payments */}
+                            
+                            {/* Line 2: Expenses Deduction */}
+                            {financials.todayCashExpenses > 0 && (
+                                <tr className="bg-red-50/50">
+                                    <td className="px-6 py-4">
+                                        <p className="font-bold text-red-700">Compras/Gastos (Efectivo)</p>
+                                        <p className="text-xs text-red-500">Salidas registradas de caja</p>
+                                    </td>
+                                    <td className="px-6 py-4 text-right font-bold text-red-600">
+                                        -${financials.todayCashExpenses.toFixed(2)}
+                                    </td>
+                                </tr>
+                            )}
+
+                            {/* Line 3+: Specific Debt Payments */}
                             {financials.todayPayments.length === 0 ? (
                                 <tr>
                                     <td colSpan={2} className="px-6 py-4 text-center text-gray-400 italic text-xs">
@@ -1129,18 +1181,19 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                                         <td className="px-6 py-4 font-medium text-gray-800">
                                             {item.name} 
                                             {item.type === 'collection' && <span className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded ml-2">Abono</span>}
+                                            {item.type === 'expense' && <span className="text-[10px] text-red-600 bg-red-50 px-2 py-0.5 rounded ml-2">Gasto</span>}
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             <span className="bg-gray-100 px-2 py-1 rounded-md font-bold text-gray-700">{item.qty}</span>
                                         </td>
                                         <td className="px-6 py-4 text-center text-gray-500">
-                                            ${(item.type === 'product' ? item.unitCost * item.qty : 0).toFixed(2)}
+                                            {item.type === 'expense' ? '-' : `$${(item.type === 'product' ? item.unitCost * item.qty : 0).toFixed(2)}`}
                                         </td>
                                         <td className="px-6 py-4 text-right font-medium text-gray-600">
-                                            ${item.revenue.toFixed(2)}
+                                            {item.type === 'expense' ? '-' : `$${item.revenue.toFixed(2)}`}
                                         </td>
-                                        <td className="px-6 py-4 text-right font-bold text-emerald-600 bg-emerald-50/30">
-                                            +${item.profit.toFixed(2)}
+                                        <td className={`px-6 py-4 text-right font-bold ${item.profit < 0 ? 'text-red-600 bg-red-50/30' : 'text-emerald-600 bg-emerald-50/30'}`}>
+                                            {item.profit > 0 ? '+' : ''}${item.profit.toFixed(2)}
                                         </td>
                                     </tr>
                                 ))
