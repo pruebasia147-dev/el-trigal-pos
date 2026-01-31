@@ -75,13 +75,22 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
     }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     // Separate Cash vs Credit for Charting & Stats
-    // Note: A 'dispatch' sale that was paid becomes 'pos' but keeps clientId. 
-    // We categorize loosely here for stats:
     const cashSales = rangeSales.filter(s => s.type === 'pos');
     const creditSales = rangeSales.filter(s => s.type === 'dispatch');
 
     const totalCash = cashSales.reduce((acc, curr) => acc + curr.totalAmount, 0);
     const totalCredit = creditSales.reduce((acc, curr) => acc + curr.totalAmount, 0);
+
+    // Calculate Profit
+    const totalProfit = rangeSales.reduce((accProfit, sale) => {
+        const saleProfit = sale.items.reduce((accItem, item) => {
+            const product = products.find(p => p.id === item.productId);
+            // Cost calculation: if product exists use cost, else estimate 70% of price is cost (30% margin)
+            const totalCost = product ? (product.cost * item.quantity) : (item.subtotal * 0.7);
+            return accItem + (item.subtotal - totalCost);
+        }, 0);
+        return accProfit + saleProfit;
+    }, 0);
 
     const chartData: Record<string, number> = {};
     rangeSales.forEach(s => {
@@ -99,11 +108,12 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
       sales: rangeSales,
       totalCash,
       totalCredit,
+      totalProfit,
       totalCombined: totalCash + totalCredit,
       count: rangeSales.length,
       chart: chartData
     };
-  }, [sales, timeFrame, customDate, searchTerm]);
+  }, [sales, timeFrame, customDate, searchTerm, products]);
 
   const maxChartValue = Math.max(...(Object.values(filteredData.chart) as number[]), 10);
   const chartEntries = Object.entries(filteredData.chart) as [string, number][];
@@ -327,12 +337,12 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
             </div>
           </div>
 
-          {/* SPLIT STATS: CASH vs CREDIT */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* SPLIT STATS: CASH vs CREDIT vs PROFIT */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* Card 1: Cash Sales */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group">
                   <div>
-                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ventas Contado (Periodo)</p>
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ventas Contado</p>
                       <p className="text-3xl font-bold text-gray-900">${filteredData.totalCash.toLocaleString('es-US', {minimumFractionDigits: 2})}</p>
                   </div>
                   <div className="p-4 bg-green-50 text-green-600 rounded-2xl group-hover:scale-110 transition-transform"><CreditCard size={24}/></div>
@@ -341,16 +351,25 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
               {/* Card 2: Credit Sales */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group">
                   <div>
-                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ventas Crédito (Periodo)</p>
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ventas Crédito</p>
                       <p className="text-3xl font-bold text-blue-600">${filteredData.totalCredit.toLocaleString('es-US', {minimumFractionDigits: 2})}</p>
                   </div>
                   <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl group-hover:scale-110 transition-transform"><Truck size={24}/></div>
               </div>
 
-              {/* Card 3: Total Operations Count */}
+              {/* Card 3: Total Profit (NEW) */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group">
                   <div>
-                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Total Operaciones</p>
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Ganancia Est.</p>
+                      <p className="text-3xl font-bold text-purple-600">${filteredData.totalProfit.toLocaleString('es-US', {minimumFractionDigits: 2})}</p>
+                  </div>
+                  <div className="p-4 bg-purple-50 text-purple-600 rounded-2xl group-hover:scale-110 transition-transform"><TrendingUp size={24}/></div>
+              </div>
+
+              {/* Card 4: Total Operations Count */}
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group">
+                  <div>
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Operaciones</p>
                       <p className="text-3xl font-bold text-gray-900">{filteredData.count}</p>
                   </div>
                   <div className="p-4 bg-orange-50 text-orange-600 rounded-2xl group-hover:scale-110 transition-transform"><FileText size={24}/></div>
