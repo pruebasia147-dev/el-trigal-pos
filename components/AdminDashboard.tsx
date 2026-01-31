@@ -233,23 +233,29 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
     const todaySales = sales.filter(s => new Date(s.date) >= startOfToday);
     const todayPayments = payments.filter(p => new Date(p.date) >= startOfToday);
     
-    // Total Payments Received Today (Cobros de Deudas)
-    const todayDebtCollection = todayPayments.reduce((acc, p) => acc + p.amount, 0);
+    // --- LÓGICA DE CAJA CORREGIDA ---
+    // 1. Pagos Genéricos (Tabla Payments)
+    // AHORA incluye también los pagos de facturas porque modificamos payDispatchInvoice para que cree un registro aquí.
+    const genericPaymentsTotal = todayPayments.reduce((acc, p) => acc + p.amount, 0);
 
-    // Cash Sales (Mostrador) - Dinero Real
-    const todayCashSales = todaySales.filter(s => s.type === 'pos');
-    const todayCashSalesRevenue = todayCashSales.reduce((acc, curr) => acc + curr.totalAmount, 0);
-    const todayCashSalesProfit = getProfit(todayCashSales);
+    // Total Abonos/Cobros (Lo que va en la etiqueta de Abonos)
+    // Esto es TODO lo que entra por "pagos", ya sea parciales o totales de facturas
+    const todayDebtCollection = genericPaymentsTotal;
 
-    // DINERO EN CAJA HOY = Ventas Mostrador + Cobros de Deuda
-    const todayTotalCashInHand = todayCashSalesRevenue + todayDebtCollection;
+    // 3. Ventas Mostrador Puras (Sin Cliente asignado)
+    // Excluimos las ventas que tienen clientId, porque esas ahora se cobran via payments
+    const purePosSales = todaySales.filter(s => s.type === 'pos' && !s.clientId);
+    const purePosRevenue = purePosSales.reduce((acc, s) => acc + s.totalAmount, 0);
+    const purePosProfit = getProfit(purePosSales);
 
-    // GANANCIA LÍQUIDA HOY = Ganancia Mostrador + (Cobros de Deuda * Margen Estimado)
-    // Asumimos que cuando entra un pago, una parte es costo recuperado y otra es ganancia realizada.
+    // DINERO EN CAJA HOY TOTAL = Mostrador (Anónimo) + Todos los Cobros (Payments)
+    const todayTotalCashInHand = purePosRevenue + todayDebtCollection;
+
+    // GANANCIA LÍQUIDA HOY
     const todayRealizedProfitFromDebt = todayDebtCollection * globalMargin;
-    const todayTotalLiquidProfit = todayCashSalesProfit + todayRealizedProfitFromDebt;
+    const todayTotalLiquidProfit = purePosProfit + todayRealizedProfitFromDebt;
 
-    // Credit Sales (Despacho) - Cuentas por Cobrar (Generadas hoy)
+    // Credit Sales (Despacho Pendiente)
     const todayCreditSales = todaySales.filter(s => s.type === 'dispatch');
     const todayCreditRevenue = todayCreditSales.reduce((acc, curr) => acc + curr.totalAmount, 0);
     const todayCreditProfit = getProfit(todayCreditSales);
@@ -284,9 +290,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
         inventoryRetailValue, // Exported
         lowStockCount,
         todaySales,
-        todayPayments, // Exported for Modal
-        todayCashSales, // Exported for Modal
-        todayCreditSales // Exported for Modal
+        todayPayments, // Generic payments
+        purePosSales, // Pure retail sales
+        todayCreditSales // Outstanding credits
     };
   };
 
@@ -296,8 +302,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   const getDailyProfitBreakdown = () => {
       const breakdown: any[] = [];
 
-      // 1. POS Items
-      const realizedSales = financials.todaySales.filter(s => s.type === 'pos');
+      // 1. POS Items (Pure Only to avoid double counting profit logic visually)
+      const realizedSales = financials.purePosSales;
       const productBreakdown: Record<string, any> = {};
 
       realizedSales.forEach(sale => {
@@ -332,16 +338,17 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
           });
       });
 
-      // 2. Debt Collections (Generic Entry)
+      // 2. Debt Collections (Generic + Paid Invoices)
       if (financials.todayDebtCollection > 0) {
-          const estimatedMargin = financials.todayTotalLiquidProfit - breakdown.reduce((acc, i) => acc + i.profit, 0);
+          // Profit from debt collection is estimated via margin
+          const debtProfit = financials.todayTotalLiquidProfit - breakdown.reduce((acc, i) => acc + i.profit, 0);
           breakdown.push({
-              name: 'Cobros de Deuda (Varios)',
+              name: 'Recuperación Deuda (Abonos)',
               qty: 1,
               unitCost: 0,
               avgUnitPrice: financials.todayDebtCollection,
               revenue: financials.todayDebtCollection,
-              profit: estimatedMargin,
+              profit: debtProfit,
               type: 'collection'
           });
       }
@@ -930,18 +937,18 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                             {/* Line 1: Summary of POS Sales */}
                             <tr className="bg-orange-50/50">
                                 <td className="px-6 py-4">
-                                    <p className="font-bold text-gray-900">Ventas Mostrador (Global)</p>
-                                    <p className="text-xs text-gray-500">{financials.todayCashSales.length} transacciones de contado</p>
+                                    <p className="font-bold text-gray-900">Ventas Mostrador (Directas)</p>
+                                    <p className="text-xs text-gray-500">{financials.purePosSales.length} transacciones de contado</p>
                                 </td>
                                 <td className="px-6 py-4 text-right font-bold text-gray-900">
-                                    ${(financials.todayTotalCashInHand - financials.todayDebtCollection).toFixed(2)}
+                                    ${(financials.purePosSales.reduce((acc,s)=>acc+s.totalAmount,0)).toFixed(2)}
                                 </td>
                             </tr>
                             {/* Line 2+: Specific Debt Payments */}
                             {financials.todayPayments.length === 0 ? (
                                 <tr>
                                     <td colSpan={2} className="px-6 py-4 text-center text-gray-400 italic text-xs">
-                                        No se han recibido abonos de clientes hoy.
+                                        No se han recibido abonos ni cobros de facturas hoy.
                                     </td>
                                 </tr>
                             ) : (
@@ -954,7 +961,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                                                 {pay.note && <p className="text-xs text-gray-500 italic">"{pay.note}"</p>}
                                                 <p className="text-[10px] text-gray-400">{new Date(pay.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                                             </td>
-                                            <td className="px-6 py-3 text-right font-medium text-blue-600">
+                                            <td className="px-6 py-3 text-right font-medium text-emerald-600">
                                                 +${pay.amount.toFixed(2)}
                                             </td>
                                         </tr>
@@ -999,7 +1006,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
                             {financials.todayCreditSales.length === 0 ? (
                                 <tr>
                                     <td colSpan={2} className="px-6 py-8 text-center text-gray-400 italic">
-                                        No hay despachos a crédito registrados hoy.
+                                        No hay despachos a crédito pendientes registrados hoy.
                                     </td>
                                 </tr>
                             ) : (

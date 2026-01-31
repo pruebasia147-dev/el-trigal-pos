@@ -148,19 +148,15 @@ class DBService {
 
   // --- NUEVA FUNCIÓN: COBRAR FACTURA DE DESPACHO ---
   async payDispatchInvoice(saleId: string, amount: number, clientId: string): Promise<void> {
-      // 1. Convertir la venta a 'pos' (Mostrador/Pagado)
+      // 1. Convertir la venta a 'pos' (Mostrador/Pagado) para que salga del listado de pendientes
+      // NOTA: Al pasar a POS, ya no aparecerá como pendiente, pero sigue teniendo clientId.
       const { error: saleError } = await this.supabase.from('sales').update({ type: 'pos' }).eq('id', saleId);
       if (saleError) throw saleError;
 
-      // 2. Reducir la deuda del cliente manualmente (sin crear registro de pago duplicado en payments)
-      const { data: client } = await this.supabase.from('clients').select('debt').eq('id', clientId).single();
-      if (client) {
-          const newDebt = Math.max(0, client.debt - amount);
-          await this.supabase.from('clients').update({ debt: newDebt }).eq('id', clientId);
-      }
-      
-      // 3. Log
-      await this.logAction('COBRO FACTURA', `Factura #${saleId.slice(0,6)} marcada como PAGADA. Deuda cliente ajustada.`);
+      // 2. IMPORTANTE: Registrar el pago explícitamente en la tabla payments.
+      // Esto actualiza la deuda y asegura que aparezca en el reporte de caja diario como un Ingreso.
+      // Usamos una nota específica para identificar que viene de una factura.
+      await this.registerClientPayment(clientId, amount, `Pago Factura #${saleId.slice(0,6)}`);
   }
 
   // --- Configuración ---
