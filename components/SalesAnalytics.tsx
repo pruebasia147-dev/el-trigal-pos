@@ -632,7 +632,7 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
 };
 
 // ... SingleInvoiceTemplate and ReportLineChart components remain same ...
-const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = ({ sale, settings }) => {
+export const SingleInvoiceTemplate: React.FC<{ sale: Sale; settings: AppSettings }> = ({ sale, settings }) => {
     return (
         <div className="w-full h-full bg-white text-black p-10 font-sans text-sm leading-normal max-w-[210mm] mx-auto print:p-0">
              <div className="h-4 bg-gray-900 w-full mb-8 print:mb-6"></div>
