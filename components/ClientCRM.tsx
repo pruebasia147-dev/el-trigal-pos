@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { Client, Product, Sale, AppSettings } from '../types';
@@ -33,16 +34,28 @@ const ClientCRM: React.FC<ClientCRMProps> = ({ clients, sales, products, setting
   // --- Actions ---
   const handlePayment = async () => {
     if (!selectedClientId || !paymentAmount) return;
+    const amount = parseFloat(paymentAmount);
+    if (isNaN(amount) || amount <= 0) {
+        alert("Por favor ingresa un monto válido");
+        return;
+    }
+
     setIsProcessing(true);
     try {
-      await db.registerClientPayment(selectedClientId, parseFloat(paymentAmount));
+      await db.registerClientPayment(selectedClientId, amount);
+      
+      // CRUCIAL: Esperar a que se actualicen los datos globales antes de cerrar
       await onRefreshData(); 
+      
       setPaymentAmount('');
       setShowPaymentModal(false);
+      alert("✅ Abono registrado correctamente. Verificando en Dashboard...");
     } catch (e) {
-      alert('Error al registrar pago');
+      console.error(e);
+      alert('Error al registrar pago. Intenta de nuevo.');
+    } finally {
+      setIsProcessing(false);
     }
-    setIsProcessing(false);
   };
 
   const handlePreOrder = () => {
@@ -571,17 +584,14 @@ const ClientCRM: React.FC<ClientCRMProps> = ({ clients, sales, products, setting
         </div>
       )}
 
-      {/* Receipt Modal */}
+      {/* Receipt Modal (Unchanged from original structure) */}
       {showSaleDetail && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
              <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200">
-                 {/* Header */}
                  <div className="bg-gray-900 text-white p-5 rounded-t-3xl flex justify-between items-center flex-none">
                      <h3 className="font-bold flex items-center gap-2"><FileText size={18}/> Detalle de Compra</h3>
                      <button onClick={() => setShowSaleDetail(null)} className="p-1 hover:bg-white/10 rounded-full"><XIcon size={20}/></button>
                  </div>
-                 
-                 {/* Scrollable Receipt Area */}
                  <div className="flex-1 overflow-y-auto bg-gray-100 p-4">
                      <div id="receipt-content-inner" className="bg-white shadow-sm p-4 rounded-xl text-sm border border-gray-200">
                          <div className="text-center border-b border-gray-100 pb-4 mb-4">
@@ -601,7 +611,6 @@ const ClientCRM: React.FC<ClientCRMProps> = ({ clients, sales, products, setting
                              <span className="text-gray-500 text-xs">Factura #:</span>
                              <span className="font-mono font-bold text-gray-800 text-xs">#{showSaleDetail.id.slice(0,8)}</span>
                          </div>
-                         
                          <table className="w-full mb-4">
                              <thead>
                                  <tr className="text-[10px] text-gray-400 uppercase border-b border-gray-100">
@@ -620,37 +629,25 @@ const ClientCRM: React.FC<ClientCRMProps> = ({ clients, sales, products, setting
                                  ))}
                              </tbody>
                          </table>
-                         
                          <div className="flex justify-between items-center pt-2 border-t border-gray-100 mb-6">
                              <span className="font-bold text-lg">Total</span>
                              <span className="font-bold text-lg text-bakery-600">${showSaleDetail.totalAmount.toFixed(2)}</span>
                          </div>
-
-                         {/* Footer for image capture */}
                          <div className="mt-4 pt-4 border-t border-dashed border-gray-200 text-center">
                              <p className="font-bold text-gray-900">¡Gracias por su compra!</p>
                              <p className="text-xs text-gray-500 mt-1">Vuelva pronto</p>
                          </div>
                      </div>
                  </div>
-
-                 {/* Footer Actions */}
                  <div className="p-4 bg-white border-t border-gray-100 rounded-b-3xl flex-none space-y-3">
                      <button 
                         onClick={handleSmartShare}
                         disabled={isCapturing}
                         className="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-green-100 hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center gap-2"
                      >
-                         {isCapturing ? 'Generando...' : (
-                            <>
-                                <Share2 size={18} /> Compartir Imagen
-                            </>
-                         )}
+                         {isCapturing ? 'Generando...' : (<><Share2 size={18} /> Compartir Imagen</>)}
                      </button>
-                     <button 
-                        onClick={() => handlePrint(showSaleDetail)}
-                        className="w-full text-gray-500 hover:text-gray-900 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                     >
+                     <button onClick={() => handlePrint(showSaleDetail)} className="w-full text-gray-500 hover:text-gray-900 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-2">
                          <StoreIcon size={16}/> Imprimir Recibo Formal
                      </button>
                  </div>
@@ -658,7 +655,7 @@ const ClientCRM: React.FC<ClientCRMProps> = ({ clients, sales, products, setting
         </div>
       )}
 
-      {/* HIDDEN PRINT TEMPLATE */}
+      {/* Hidden Print Template */}
       <div className="hidden print:block print:fixed print:inset-0 print:bg-white print:z-[10000]">
            {saleToPrint && (
                <div className="p-10 text-black font-mono text-sm max-w-[80mm] mx-auto">
@@ -701,7 +698,6 @@ const ClientCRM: React.FC<ClientCRMProps> = ({ clients, sales, products, setting
                            <span>Bs. {(saleToPrint.totalAmount * settings.exchangeRate).toFixed(2)}</span>
                        </div>
                    </div>
-                   
                    <div className="mt-8 text-center pt-4 border-t border-black border-dashed">
                        <p className="font-bold">¡Gracias por su compra!</p>
                        <p>Vuelva pronto</p>

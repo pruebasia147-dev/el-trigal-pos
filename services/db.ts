@@ -125,14 +125,17 @@ class DBService {
     if (!client) throw new Error("Cliente no encontrado");
     
     // 1. Registrar el pago en la tabla histórica (Nueva tabla 'payments')
+    // IMPORTANTE: La fecha debe ser NEW DATE().toISOString() para asegurar compatibilidad con filtros del dashboard
     const payment: Payment = {
         id: this.generateId(),
         clientId,
         amount,
-        date: new Date().toISOString(),
+        date: new Date().toISOString(), 
         note
     };
-    await this.supabase.from('payments').insert(payment);
+    
+    const { error } = await this.supabase.from('payments').insert(payment);
+    if (error) throw error;
 
     // 2. Actualizar la deuda del cliente
     const newDebt = Math.max(0, client.debt - amount);
@@ -142,6 +145,7 @@ class DBService {
   }
 
   async getPayments(): Promise<Payment[]> {
+      // Obtenemos los últimos 200 pagos ordenados por fecha descendente
       const { data } = await this.supabase.from('payments').select('*').order('date', { ascending: false }).limit(200);
       return data || [];
   }
