@@ -475,7 +475,7 @@ class DBService {
   // --- GESTIÓN DE EGRESOS/COMPRAS (NUEVO) ---
   async getExpenses(): Promise<Expense[]> {
       if(this.isOnline) {
-          const { data } = await this.supabase.from('expenses').select('*').order('date', {ascending: false}).limit(100);
+          const { data } = await this.supabase.from('expenses').select('*').order('date', {ascending: false}).limit(500);
           if (data) {
               localStorage.setItem('cachedExpenses', JSON.stringify(data));
               return data;

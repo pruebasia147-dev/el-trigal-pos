@@ -109,7 +109,7 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
   };
 
   return (
-    <div className="h-full flex flex-col animate-in fade-in duration-500">
+    <div className="w-full animate-in fade-in duration-500 pb-10">
       
       {/* Header Section with Stats */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -163,19 +163,19 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
           </div>
       </div>
 
-      {/* Expenses Table */}
-      <div className="flex-1 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+      {/* Expenses Table - Full Height/Auto Expansion */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
           <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
               <h3 className="font-bold text-gray-700">Historial de Egresos</h3>
               <span className="text-xs font-bold bg-white border border-gray-200 px-2 py-1 rounded text-gray-500">
                   {expenses.length} registros
               </span>
           </div>
-          <div className="overflow-y-auto flex-1">
+          <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                  <thead className="bg-white sticky top-0 shadow-sm z-10 text-gray-500 text-xs uppercase">
+                  <thead className="bg-white border-b border-gray-100 text-gray-500 text-xs uppercase">
                       <tr>
-                          <th className="px-6 py-4 font-bold">Fecha / Hora</th>
+                          <th className="px-6 py-4 font-bold whitespace-nowrap">Fecha / Hora</th>
                           <th className="px-6 py-4 font-bold">Descripción</th>
                           <th className="px-6 py-4 font-bold text-center">Categoría</th>
                           <th className="px-6 py-4 font-bold text-center">Pago</th>
@@ -194,28 +194,28 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
                       ) : (
                           expenses.map(expense => (
                               <tr key={expense.id} className="hover:bg-gray-50 transition-colors">
-                                  <td className="px-6 py-4">
+                                  <td className="px-6 py-4 whitespace-nowrap">
                                       <p className="font-bold text-gray-800">{new Date(expense.date).toLocaleDateString()}</p>
                                       <p className="text-xs text-gray-400">{new Date(expense.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                                   </td>
                                   <td className="px-6 py-4">
                                       <p className="font-medium text-gray-900">{expense.description}</p>
                                   </td>
-                                  <td className="px-6 py-4 text-center">
+                                  <td className="px-6 py-4 text-center whitespace-nowrap">
                                       <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase border ${getCategoryColor(expense.category)}`}>
                                           {expense.category}
                                       </span>
                                   </td>
-                                  <td className="px-6 py-4 text-center">
+                                  <td className="px-6 py-4 text-center whitespace-nowrap">
                                       <div className="flex items-center justify-center gap-1 text-xs font-bold text-gray-600">
                                           {expense.paymentMethod === 'cash' ? <Wallet size={14}/> : <Building2 size={14}/>}
                                           {expense.paymentMethod === 'cash' ? 'Efectivo' : 'Banco'}
                                       </div>
                                   </td>
-                                  <td className="px-6 py-4 text-right font-bold text-red-600">
+                                  <td className="px-6 py-4 text-right font-bold text-red-600 whitespace-nowrap">
                                       -${expense.amount.toFixed(2)}
                                   </td>
-                                  <td className="px-6 py-4 text-center">
+                                  <td className="px-6 py-4 text-center whitespace-nowrap">
                                       <button 
                                           onClick={() => handleDelete(expense.id)}
                                           className="p-2 hover:bg-red-50 text-gray-400 hover:text-red-600 rounded-full transition-colors"
@@ -232,7 +232,7 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
           </div>
       </div>
 
-      {/* Modal Form - Z-Index Increased to 100 to prevent overlap issues */}
+      {/* Modal Form */}
       {showModal && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
               <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
