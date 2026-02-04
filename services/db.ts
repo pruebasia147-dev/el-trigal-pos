@@ -475,13 +475,28 @@ class DBService {
     }
   }
 
-  // --- GESTIÓN DE EGRESOS/COMPRAS ---
+  // --- GESTIÓN DE EGRESOS/COMPRAS (MEJORADO) ---
   async getExpenses(): Promise<Expense[]> {
       if(this.isOnline) {
-          const { data } = await this.supabase.from('expenses').select('*').order('date', {ascending: false}).limit(500);
-          if (data) {
-              localStorage.setItem('cachedExpenses', JSON.stringify(data));
-              return data;
+          try {
+            const { data, error } = await this.supabase.from('expenses').select('*').order('date', {ascending: false}).limit(500);
+            if (!error && data) {
+                // Combinar datos del servidor con datos pendientes en cola (para que no desaparezcan)
+                const pendingExpenses = this.pendingQueue
+                    .filter(a => a.type === 'ADD_EXPENSE')
+                    .map(a => a.payload as Expense);
+                
+                // Evitar duplicados si ya llegaron al servidor
+                const serverIds = new Set(data.map(e => e.id));
+                const uniquePending = pendingExpenses.filter(e => !serverIds.has(e.id));
+                
+                const finalData = [...uniquePending, ...data].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                localStorage.setItem('cachedExpenses', JSON.stringify(finalData));
+                return finalData;
+            }
+          } catch (e) {
+              console.warn("Error fetching expenses online, using cache");
           }
       }
       const cached = localStorage.getItem('cachedExpenses');
@@ -491,7 +506,8 @@ class DBService {
   async addExpense(expense: Expense, isSync = false): Promise<void> {
       const newExpense = { ...expense, id: expense.id || this.generateId() };
 
-      if(!this.isOnline && !isSync) { 
+      // Función auxiliar para guardar offline
+      const saveOffline = () => {
           // 1. Agregar a Cola
           this.pendingQueue.push({
             id: this.generateId(),
@@ -505,20 +521,36 @@ class DBService {
           const cached = localStorage.getItem('cachedExpenses');
           const currentExpenses = cached ? JSON.parse(cached) : [];
           localStorage.setItem('cachedExpenses', JSON.stringify([newExpense, ...currentExpenses]));
-          
+      };
+
+      // Si el navegador dice que está offline, ir directo a la cola
+      if(!this.isOnline && !isSync) { 
+          saveOffline();
           return; 
       }
       
-      const { error } = await this.supabase.from('expenses').insert(newExpense);
-      if (error) throw error;
+      try {
+          const { error } = await this.supabase.from('expenses').insert(newExpense);
+          if (error) throw error;
 
-      if (!isSync) {
-        // Update Cache Optimistically if online too
-        const cached = localStorage.getItem('cachedExpenses');
-        const currentExpenses = cached ? JSON.parse(cached) : [];
-        localStorage.setItem('cachedExpenses', JSON.stringify([newExpense, ...currentExpenses]));
+          if (!isSync) {
+            // Update Cache Optimistically if online too
+            const cached = localStorage.getItem('cachedExpenses');
+            const currentExpenses = cached ? JSON.parse(cached) : [];
+            localStorage.setItem('cachedExpenses', JSON.stringify([newExpense, ...currentExpenses]));
 
-        await this.logAction('GASTO REGISTRADO', `Compra: ${expense.description} ($${expense.amount})`);
+            await this.logAction('GASTO REGISTRADO', `Compra: ${expense.description} ($${expense.amount})`);
+          }
+      } catch (error) {
+          console.error("Error saving expense online:", error);
+          // Si falló el insert (por ejemplo, timeout o intermitencia) y es una acción de usuario, guardar en offline
+          // para no perder el dato y no dar error al usuario.
+          if (!isSync) {
+              console.log("Falling back to offline queue for expense.");
+              saveOffline();
+          } else {
+              throw error; // Si es sync, lanzar error para reintentar luego
+          }
       }
   }
 
