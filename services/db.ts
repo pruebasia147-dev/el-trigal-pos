@@ -9,7 +9,7 @@ const SUPABASE_KEY = 'sb_publishable_2M2-3m7ATCB0-JBTW1B3AA_etOLVD85';
 
 interface PendingAction {
     id: string;
-    type: 'SALE_RETAIL' | 'SALE_DISPATCH' | 'PAYMENT' | 'UPDATE_CLIENT';
+    type: 'SALE_RETAIL' | 'SALE_DISPATCH' | 'PAYMENT' | 'UPDATE_CLIENT' | 'ADD_EXPENSE';
     payload: any;
     timestamp: number;
 }
@@ -75,6 +75,9 @@ class DBService {
                       break;
                   case 'UPDATE_CLIENT':
                       await this.updateClient(action.payload, true);
+                      break;
+                  case 'ADD_EXPENSE':
+                      await this.addExpense(action.payload, true);
                       break;
               }
           } catch (e) {
@@ -472,7 +475,7 @@ class DBService {
     }
   }
 
-  // --- GESTIÓN DE EGRESOS/COMPRAS (NUEVO) ---
+  // --- GESTIÓN DE EGRESOS/COMPRAS ---
   async getExpenses(): Promise<Expense[]> {
       if(this.isOnline) {
           const { data } = await this.supabase.from('expenses').select('*').order('date', {ascending: false}).limit(500);
@@ -485,17 +488,38 @@ class DBService {
       return cached ? JSON.parse(cached) : [];
   }
 
-  async addExpense(expense: Expense): Promise<void> {
-      if(!this.isOnline) { alert('El registro de gastos requiere conexión.'); return; }
+  async addExpense(expense: Expense, isSync = false): Promise<void> {
       const newExpense = { ...expense, id: expense.id || this.generateId() };
-      
-      // Update Cache Optimistically to ensure UI updates immediately
-      const cached = localStorage.getItem('cachedExpenses');
-      const currentExpenses = cached ? JSON.parse(cached) : [];
-      localStorage.setItem('cachedExpenses', JSON.stringify([newExpense, ...currentExpenses]));
 
-      await this.supabase.from('expenses').insert(newExpense);
-      await this.logAction('GASTO REGISTRADO', `Compra: ${expense.description} ($${expense.amount})`);
+      if(!this.isOnline && !isSync) { 
+          // 1. Agregar a Cola
+          this.pendingQueue.push({
+            id: this.generateId(),
+            type: 'ADD_EXPENSE',
+            payload: newExpense,
+            timestamp: Date.now()
+          });
+          this.saveQueue();
+
+          // 2. Actualizar Caché Local (Optimistic UI)
+          const cached = localStorage.getItem('cachedExpenses');
+          const currentExpenses = cached ? JSON.parse(cached) : [];
+          localStorage.setItem('cachedExpenses', JSON.stringify([newExpense, ...currentExpenses]));
+          
+          return; 
+      }
+      
+      const { error } = await this.supabase.from('expenses').insert(newExpense);
+      if (error) throw error;
+
+      if (!isSync) {
+        // Update Cache Optimistically if online too
+        const cached = localStorage.getItem('cachedExpenses');
+        const currentExpenses = cached ? JSON.parse(cached) : [];
+        localStorage.setItem('cachedExpenses', JSON.stringify([newExpense, ...currentExpenses]));
+
+        await this.logAction('GASTO REGISTRADO', `Compra: ${expense.description} ($${expense.amount})`);
+      }
   }
 
   async deleteExpense(id: string): Promise<void> {
