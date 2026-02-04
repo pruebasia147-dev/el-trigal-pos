@@ -31,8 +31,14 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description.trim() || !amount) {
-        alert("Por favor completa la descripción y el monto.");
+    
+    if (!description.trim()) {
+        alert("Por favor escribe una descripción para el gasto.");
+        return;
+    }
+    
+    if (!amount) {
+        alert("Por favor ingresa un monto.");
         return;
     }
 
@@ -52,7 +58,7 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
     setIsSubmitting(true);
     try {
         const newExpense: Expense = {
-            id: '', // DB generates or ignores
+            id: '', // DB generates id
             date: new Date().toISOString(),
             category,
             description: description.trim(),
@@ -61,11 +67,10 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
             registeredBy: 'Admin' 
         };
         await db.addExpense(newExpense);
-        await onRefresh(); // Update dashboard stats
+        await onRefresh(); // Force dashboard update
         
         setShowModal(false);
         resetForm();
-        // Feedback visual o alerta sutil
     } catch (error) {
         console.error("Error submitting expense:", error);
         alert('Error al guardar el gasto. Verifique su conexión e intente nuevamente.');
@@ -227,7 +232,7 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
           </div>
       </div>
 
-      {/* Modal Form - Z-Index Increased */}
+      {/* Modal Form - Z-Index Increased to 100 to prevent overlap issues */}
       {showModal && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
               <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
