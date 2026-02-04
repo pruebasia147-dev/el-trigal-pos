@@ -5,7 +5,7 @@ import { db } from '../services/db';
 import html2canvas from 'html2canvas';
 import { 
   Calendar, TrendingUp, DollarSign, ShoppingBag, BarChart, 
-  FileText, Search, Clock, MapPin, X, ArrowRight, Printer, Download, Share2, Camera, Store as StoreIcon, Pencil, AlertTriangle, Trash2, CreditCard, Truck, CheckCircle, User as UserIcon
+  FileText, Search, Clock, MapPin, X, ArrowRight, Printer, Download, Share2, Camera, Store as StoreIcon, Pencil, AlertTriangle, Trash2, CreditCard, Truck, CheckCircle, User as UserIcon, BrainCircuit, Sparkles
 } from 'lucide-react';
 
 interface SalesAnalyticsProps {
@@ -92,6 +92,11 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
         return accProfit + saleProfit;
     }, 0);
 
+    // Calculate Total Units Sold
+    const totalUnits = rangeSales.reduce((acc, sale) => {
+        return acc + sale.items.reduce((sum, item) => sum + item.quantity, 0);
+    }, 0);
+
     const chartData: Record<string, number> = {};
     rangeSales.forEach(s => {
       const date = new Date(s.date);
@@ -111,9 +116,75 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
       totalProfit,
       totalCombined: totalCash + totalCredit,
       count: rangeSales.length,
+      totalUnits,
       chart: chartData
     };
   }, [sales, timeFrame, customDate, searchTerm, products]);
+
+  // --- PRODUCT PERFORMANCE LOGIC ---
+  const productPerformance = useMemo(() => {
+      const stats: Record<string, {
+          name: string;
+          qty: number;
+          revenue: number;
+          count: number; // Number of distinct sales containing this item
+      }> = {};
+
+      filteredData.sales.forEach(sale => {
+          sale.items.forEach(item => {
+              if (!stats[item.productId]) {
+                  stats[item.productId] = { name: item.productName, qty: 0, revenue: 0, count: 0 };
+              }
+              stats[item.productId].qty += item.quantity;
+              stats[item.productId].revenue += item.subtotal;
+              stats[item.productId].count += 1;
+          });
+      });
+
+      return Object.values(stats).sort((a, b) => b.qty - a.qty);
+  }, [filteredData.sales]);
+
+  // --- AI PREDICTION LOGIC (NUEVO) ---
+  const aiProjections = useMemo(() => {
+      if (sales.length === 0) return [];
+      
+      // 1. Calcular rango de fechas activo (días que lleva el sistema operando o desde la primera venta)
+      const dates = sales.map(s => new Date(s.date).getTime());
+      const minDate = Math.min(...dates);
+      const now = new Date().getTime();
+      const diffTime = Math.abs(now - minDate);
+      const daysActive = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1; // Evitar división por cero
+
+      // 2. Calcular velocidad de venta diaria por producto
+      const projections = products.map(p => {
+          // Filtrar todas las ventas históricas de este producto
+          const historyItems = sales.flatMap(s => s.items).filter(i => i.productId === p.id);
+          const totalQtySold = historyItems.reduce((acc, i) => acc + i.quantity, 0);
+          
+          // Promedio diario
+          const dailyAvg = totalQtySold / daysActive;
+          
+          // Margen unitario
+          const margin = p.priceRetail - p.cost;
+
+          return {
+              id: p.id,
+              name: p.name,
+              dailyAvg: dailyAvg,
+              price: p.priceRetail,
+              margin: margin,
+              // Proyecciones
+              nextDay: { qty: dailyAvg * 1, revenue: dailyAvg * 1 * p.priceRetail, profit: dailyAvg * 1 * margin },
+              nextWeek: { qty: dailyAvg * 7, revenue: dailyAvg * 7 * p.priceRetail, profit: dailyAvg * 7 * margin },
+              nextMonth: { qty: dailyAvg * 30, revenue: dailyAvg * 30 * p.priceRetail, profit: dailyAvg * 30 * margin }
+          };
+      });
+
+      // Retornar solo los que tienen movimiento y ordenar por mayor proyección de ganancia semanal
+      return projections.filter(p => p.dailyAvg > 0.1).sort((a, b) => b.nextWeek.profit - a.nextWeek.profit);
+
+  }, [sales, products]);
+
 
   const maxChartValue = Math.max(...(Object.values(filteredData.chart) as number[]), 10);
   const chartEntries = Object.entries(filteredData.chart) as [string, number][];
@@ -374,6 +445,143 @@ const SalesAnalytics: React.FC<SalesAnalyticsProps> = ({ sales, products, settin
                   </div>
                   <div className="p-4 bg-orange-50 text-orange-600 rounded-2xl group-hover:scale-110 transition-transform"><FileText size={24}/></div>
               </div>
+          </div>
+
+          {/* --- SECTION: PRODUCT PERFORMANCE --- */}
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
+                <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white">
+                    <div>
+                        <h3 className="font-bold text-xl text-gray-900 flex items-center gap-2">
+                            <ShoppingBag size={20} className="text-bakery-600"/>
+                            Ventas por Producto
+                        </h3>
+                        <p className="text-sm text-gray-500 mt-1">Cantidades totales y promedios del periodo seleccionado.</p>
+                    </div>
+                    {/* Total Units Display */}
+                    <div className="text-right">
+                        <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Total Unidades</p>
+                        <p className="text-2xl font-bold text-gray-900">{filteredData.totalUnits}</p>
+                    </div>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-gray-500 uppercase bg-gray-50/50 border-b border-gray-100 font-bold tracking-wider">
+                            <tr>
+                                <th className="px-8 py-4">Producto</th>
+                                <th className="px-8 py-4 text-center">Cantidad Total</th>
+                                <th className="px-8 py-4 text-center">Frecuencia</th>
+                                <th className="px-8 py-4 text-center">Promedio / Venta</th>
+                                <th className="px-8 py-4 text-right">Ingreso Generado</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {productPerformance.length === 0 ? (
+                                <tr><td colSpan={5} className="px-8 py-6 text-center text-gray-400">Sin datos en este periodo</td></tr>
+                            ) : (
+                                productPerformance.map((item, idx) => (
+                                    <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                                        <td className="px-8 py-4 font-bold text-gray-800">{item.name}</td>
+                                        <td className="px-8 py-4 text-center">
+                                            <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full font-bold">
+                                                {item.qty} un
+                                            </span>
+                                        </td>
+                                        <td className="px-8 py-4 text-center text-gray-500">
+                                            En {item.count} facturas
+                                        </td>
+                                        <td className="px-8 py-4 text-center text-gray-600">
+                                            ~{(item.qty / item.count).toFixed(1)} un
+                                        </td>
+                                        <td className="px-8 py-4 text-right font-bold text-gray-900">
+                                            ${item.revenue.toFixed(2)}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+          </div>
+
+          {/* --- NEW SECTION: AI PROJECTIONS --- */}
+          <div className="bg-white rounded-3xl border border-indigo-100 shadow-sm overflow-hidden relative">
+                {/* Decorative AI Header */}
+                <div className="px-8 py-6 border-b border-indigo-50 flex justify-between items-center bg-gradient-to-r from-indigo-50/50 to-white">
+                    <div>
+                        <h3 className="font-bold text-xl text-gray-900 flex items-center gap-2">
+                            <BrainCircuit size={20} className="text-indigo-600"/>
+                            Proyección de Demanda (IA)
+                        </h3>
+                        <p className="text-sm text-gray-500 mt-1 flex items-center gap-1">
+                           <Sparkles size={12} className="text-indigo-400"/> Estimación de ventas futuras y ganancias basada en datos históricos.
+                        </p>
+                    </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-indigo-900/60 uppercase bg-indigo-50/30 border-b border-indigo-50 font-bold tracking-wider">
+                            <tr>
+                                <th className="px-8 py-4 w-1/4">Producto</th>
+                                <th className="px-4 py-4 text-center border-l border-indigo-50 bg-indigo-50/20">Mañana (24h)</th>
+                                <th className="px-4 py-4 text-center border-l border-indigo-50">Próxima Semana (7d)</th>
+                                <th className="px-4 py-4 text-center border-l border-indigo-50 bg-indigo-50/20">Próximo Mes (30d)</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {aiProjections.length === 0 ? (
+                                <tr><td colSpan={4} className="px-8 py-12 text-center text-gray-400 italic">Se requieren más datos de ventas para generar proyecciones.</td></tr>
+                            ) : (
+                                aiProjections.map((p) => (
+                                    <tr key={p.id} className="hover:bg-indigo-50/10 transition-colors group">
+                                        <td className="px-8 py-4">
+                                            <p className="font-bold text-gray-800">{p.name}</p>
+                                            <p className="text-[10px] text-gray-400 mt-0.5">Velocidad: ~{p.dailyAvg.toFixed(1)} ud/día</p>
+                                        </td>
+                                        
+                                        {/* Day Projection */}
+                                        <td className="px-4 py-4 text-center border-l border-dashed border-gray-100 bg-indigo-50/10">
+                                            <div className="flex flex-col items-center">
+                                                <span className="font-bold text-gray-900 text-lg">{Math.round(p.nextDay.qty)} un</span>
+                                                <div className="flex flex-col text-[10px] mt-1 gap-0.5">
+                                                    <span className="text-gray-500">Fact: ${p.nextDay.revenue.toFixed(0)}</span>
+                                                    <span className="text-green-600 font-bold bg-green-50 px-1.5 rounded">Gan: +${p.nextDay.profit.toFixed(0)}</span>
+                                                </div>
+                                            </div>
+                                        </td>
+
+                                        {/* Week Projection */}
+                                        <td className="px-4 py-4 text-center border-l border-dashed border-gray-100">
+                                            <div className="flex flex-col items-center">
+                                                <span className="font-bold text-gray-900 text-lg">{Math.round(p.nextWeek.qty)} un</span>
+                                                <div className="flex flex-col text-[10px] mt-1 gap-0.5">
+                                                    <span className="text-gray-500">Fact: ${p.nextWeek.revenue.toFixed(0)}</span>
+                                                    <span className="text-green-600 font-bold bg-green-50 px-1.5 rounded">Gan: +${p.nextWeek.profit.toFixed(0)}</span>
+                                                </div>
+                                            </div>
+                                        </td>
+
+                                        {/* Month Projection */}
+                                        <td className="px-4 py-4 text-center border-l border-dashed border-gray-100 bg-indigo-50/10">
+                                            <div className="flex flex-col items-center">
+                                                <span className="font-bold text-gray-900 text-lg">{Math.round(p.nextMonth.qty)} un</span>
+                                                <div className="flex flex-col text-[10px] mt-1 gap-0.5">
+                                                    <span className="text-gray-500">Fact: ${p.nextMonth.revenue.toFixed(0)}</span>
+                                                    <span className="text-green-600 font-bold bg-green-50 px-1.5 rounded">Gan: +${p.nextMonth.profit.toFixed(0)}</span>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="bg-indigo-50/30 p-3 text-center border-t border-indigo-50">
+                    <p className="text-[10px] text-indigo-400 font-medium">
+                        * Proyecciones basadas en promedio simple diario. La precisión mejora con más historial de ventas.
+                    </p>
+                </div>
           </div>
 
           {/* Detailed Table */}

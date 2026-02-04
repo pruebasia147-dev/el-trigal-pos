@@ -4,7 +4,7 @@ import { db } from '../services/db';
 import { Expense } from '../types';
 import { 
   ShoppingBasket, DollarSign, Calendar, Tag, Trash2, Plus, 
-  Wallet, Building2, AlertTriangle, TrendingDown, Store
+  Wallet, Building2, AlertTriangle, TrendingDown, Store, CheckCircle
 } from 'lucide-react';
 
 interface ExpensesManagerProps {
@@ -31,13 +31,20 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description || !amount) return;
+    if (!description.trim() || !amount) {
+        alert("Por favor completa la descripción y el monto.");
+        return;
+    }
 
     const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+        alert("El monto debe ser un número válido mayor a 0.");
+        return;
+    }
     
     // Validación de Caja Física
     if (paymentMethod === 'cash' && numAmount > cashInHand) {
-        if (!confirm(`⚠️ ALERTA DE CAJA:\n\nEstás intentando registrar una salida de efectivo por $${numAmount}, pero el sistema calcula que solo hay $${cashInHand.toFixed(2)} en caja hoy.\n\n¿Deseas continuar de todas formas?`)) {
+        if (!confirm(`⚠️ ALERTA DE CAJA:\n\nEstás intentando registrar una salida de efectivo por $${numAmount.toFixed(2)}, pero el sistema calcula que solo hay $${cashInHand.toFixed(2)} en caja hoy.\n\n¿Deseas continuar de todas formas?`)) {
             return;
         }
     }
@@ -48,27 +55,34 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
             id: '', // DB generates or ignores
             date: new Date().toISOString(),
             category,
-            description,
+            description: description.trim(),
             amount: numAmount,
             paymentMethod,
             registeredBy: 'Admin' 
         };
         await db.addExpense(newExpense);
-        await onRefresh();
+        await onRefresh(); // Update dashboard stats
+        
         setShowModal(false);
         resetForm();
-        alert('Gasto registrado correctamente.');
+        // Feedback visual o alerta sutil
     } catch (error) {
-        console.error(error);
-        alert('Error al guardar el gasto.');
+        console.error("Error submitting expense:", error);
+        alert('Error al guardar el gasto. Verifique su conexión e intente nuevamente.');
+    } finally {
+        setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   const handleDelete = async (id: string) => {
       if (confirm('¿Eliminar este registro de gasto? Esto devolverá el monto a los cálculos de ganancia.')) {
-          await db.deleteExpense(id);
-          await onRefresh();
+          try {
+            await db.deleteExpense(id);
+            await onRefresh();
+          } catch (error) {
+            console.error(error);
+            alert("Error al eliminar.");
+          }
       }
   };
 
@@ -102,6 +116,7 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
               <p className="text-gray-500 text-sm">Control de salidas de dinero y costos operativos.</p>
           </div>
           <button 
+              type="button"
               onClick={() => setShowModal(true)}
               className="bg-red-600 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 hover:bg-red-700 shadow-lg shadow-red-100 transition-all active:scale-95"
           >
@@ -199,6 +214,7 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
                                       <button 
                                           onClick={() => handleDelete(expense.id)}
                                           className="p-2 hover:bg-red-50 text-gray-400 hover:text-red-600 rounded-full transition-colors"
+                                          title="Eliminar registro"
                                       >
                                           <Trash2 size={16} />
                                       </button>
@@ -211,96 +227,108 @@ const ExpensesManager: React.FC<ExpensesManagerProps> = ({ expenses, onRefresh, 
           </div>
       </div>
 
-      {/* Modal Form */}
+      {/* Modal Form - Z-Index Increased */}
       {showModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl animate-in zoom-in duration-200">
-                  <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+              <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+                  <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl flex-none">
                       <h3 className="font-bold text-lg text-gray-800">Registrar Nuevo Gasto</h3>
-                      <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><Trash2 size={20} className="rotate-45"/></button>
+                      <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-200">
+                          <Trash2 size={20} className="rotate-45"/>
+                      </button>
                   </div>
                   
-                  <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                      <div>
-                          <label className="block text-sm font-bold text-gray-700 mb-1">Monto ($)</label>
-                          <input 
-                              type="number" 
-                              required
-                              min="0.01"
-                              step="0.01"
-                              className="w-full text-2xl font-bold p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none"
-                              placeholder="0.00"
-                              value={amount}
-                              onChange={e => setAmount(e.target.value)}
-                              autoFocus
-                          />
-                      </div>
+                  <div className="p-6 overflow-y-auto">
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Monto ($)</label>
+                            <div className="relative">
+                                <span className="absolute left-3 top-3 text-gray-400 font-bold">$</span>
+                                <input 
+                                    type="number" 
+                                    required
+                                    min="0.01"
+                                    step="0.01"
+                                    className="w-full text-2xl font-bold pl-8 p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none"
+                                    placeholder="0.00"
+                                    value={amount}
+                                    onChange={e => setAmount(e.target.value)}
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
 
-                      <div>
-                          <label className="block text-sm font-bold text-gray-700 mb-1">Concepto / Descripción</label>
-                          <input 
-                              type="text" 
-                              required
-                              className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-sm"
-                              placeholder="Ej: Saco de harina, Pago de luz..."
-                              value={description}
-                              onChange={e => setDescription(e.target.value)}
-                          />
-                      </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Concepto / Descripción</label>
+                            <input 
+                                type="text" 
+                                required
+                                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                                placeholder="Ej: Saco de harina, Pago de luz..."
+                                value={description}
+                                onChange={e => setDescription(e.target.value)}
+                            />
+                        </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="block text-sm font-bold text-gray-700 mb-1">Categoría</label>
-                              <select 
-                                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-sm bg-white"
-                                  value={category}
-                                  onChange={e => setCategory(e.target.value as any)}
-                              >
-                                  <option value="Materia Prima">Materia Prima</option>
-                                  <option value="Servicios">Servicios</option>
-                                  <option value="Nómina">Nómina</option>
-                                  <option value="Mantenimiento">Mantenimiento</option>
-                                  <option value="Varios">Varios</option>
-                              </select>
-                          </div>
-                          <div>
-                              <label className="block text-sm font-bold text-gray-700 mb-1">Origen del Dinero</label>
-                              <div className="flex bg-gray-100 p-1 rounded-xl">
-                                  <button
-                                      type="button"
-                                      onClick={() => setPaymentMethod('cash')}
-                                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${paymentMethod === 'cash' ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}
-                                  >
-                                      <Wallet size={14}/> Caja
-                                  </button>
-                                  <button
-                                      type="button"
-                                      onClick={() => setPaymentMethod('bank')}
-                                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${paymentMethod === 'bank' ? 'bg-white shadow text-blue-700' : 'text-gray-500'}`}
-                                  >
-                                      <Building2 size={14}/> Banco
-                                  </button>
-                              </div>
-                          </div>
-                      </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Categoría</label>
+                                <select 
+                                    className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-sm bg-white"
+                                    value={category}
+                                    onChange={e => setCategory(e.target.value as any)}
+                                >
+                                    <option value="Materia Prima">Materia Prima</option>
+                                    <option value="Servicios">Servicios</option>
+                                    <option value="Nómina">Nómina</option>
+                                    <option value="Mantenimiento">Mantenimiento</option>
+                                    <option value="Varios">Varios</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Origen del Dinero</label>
+                                <div className="flex bg-gray-100 p-1 rounded-xl">
+                                    <button
+                                        type="button"
+                                        onClick={() => setPaymentMethod('cash')}
+                                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${paymentMethod === 'cash' ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}
+                                    >
+                                        <Wallet size={14}/> Caja
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPaymentMethod('bank')}
+                                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${paymentMethod === 'bank' ? 'bg-white shadow text-blue-700' : 'text-gray-500'}`}
+                                    >
+                                        <Building2 size={14}/> Banco
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
 
-                      {paymentMethod === 'cash' && (
-                          <div className="bg-orange-50 border border-orange-100 p-3 rounded-lg flex items-start gap-2">
-                              <AlertTriangle size={16} className="text-orange-500 mt-0.5 shrink-0"/>
-                              <p className="text-xs text-orange-700">Este monto se descontará del <b>Dinero en Caja</b> del día de hoy.</p>
-                          </div>
-                      )}
+                        {paymentMethod === 'cash' && (
+                            <div className="bg-orange-50 border border-orange-100 p-3 rounded-lg flex items-start gap-2">
+                                <AlertTriangle size={16} className="text-orange-500 mt-0.5 shrink-0"/>
+                                <p className="text-xs text-orange-700">Este monto se descontará del <b>Dinero en Caja</b> del día de hoy.</p>
+                            </div>
+                        )}
 
-                      <div className="pt-2">
-                          <button 
-                              type="submit"
-                              disabled={isSubmitting}
-                              className="w-full bg-red-600 text-white py-3.5 rounded-xl font-bold shadow-lg hover:bg-red-700 transition-all active:scale-95 disabled:bg-gray-300"
-                          >
-                              {isSubmitting ? 'Guardando...' : 'Confirmar Gasto'}
-                          </button>
-                      </div>
-                  </form>
+                        <div className="pt-2">
+                            <button 
+                                type="submit"
+                                disabled={isSubmitting}
+                                className="w-full bg-red-600 text-white py-3.5 rounded-xl font-bold shadow-lg hover:bg-red-700 transition-all active:scale-95 disabled:bg-gray-300 flex justify-center items-center gap-2"
+                            >
+                                {isSubmitting ? 'Guardando...' : (
+                                    <>
+                                        <CheckCircle size={20} />
+                                        Confirmar Gasto
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </form>
+                  </div>
               </div>
           </div>
       )}
