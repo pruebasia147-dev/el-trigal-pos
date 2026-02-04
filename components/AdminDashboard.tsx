@@ -98,10 +98,20 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout }) => {
   };
 
   useEffect(() => {
-    loadData();
-    if (activeTab === 'logs') {
-        loadLogs();
-    }
+    const fetchAll = async () => {
+        await loadData();
+        if (activeTab === 'logs') {
+            await loadLogs();
+        }
+    };
+
+    fetchAll(); // Carga inicial inmediata
+    
+    // Intervalo de actualización automática (5 segundos)
+    // Esto asegura que si haces un cambio en el teléfono, aparezca en la PC
+    const interval = setInterval(fetchAll, 5000);
+
+    return () => clearInterval(interval);
   }, [activeTab]);
 
   // Initialize Sim Products safely
